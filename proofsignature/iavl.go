@@ -8,7 +8,6 @@ import (
 	"github.com/anconprotocol/sdk"
 	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/iavl"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/ipfs/go-graphsync"
 	"github.com/pkg/errors"
@@ -62,74 +61,58 @@ func NewIavlAPI(dagStore sdk.Storage, dagExchange graphsync.GraphExchange, db db
 	// }
 }
 
-func GetArguments(req hexutil.Bytes) (map[string]interface{}, error) {
-	var values map[string]interface{}
-	dec, err := hexutil.Decode(req.String())
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(dec, values)
-	return values, err
-}
+// func GetArguments(req) (map[string]interface{}, error) {
+// 	var values map[string]interface{}
+// 	dec, err := hexutil.Decode(req.String())
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	err = json.Unmarshal(dec, values)
+// 	return values, err
+// }
 
-func ToHex(v interface{}) (hexutil.Bytes, error) {
-	jsonval, err := json.Marshal(v)
-	if err != nil {
-		return hexutil.Bytes(hexutil.Encode([]byte(fmt.Errorf("reverted, json marshal").Error()))), err
-	}
-	valenc := hexutil.Encode(jsonval)
-	return hexutil.Bytes(valenc), err
-}
+// func ToHex(v interface{}) (hexutil.Bytes, error) {
+// 	jsonval, err := json.Marshal(v)
+// 	if err != nil {
+// 		return (hexutil.Encode([]byte(fmt.Errorf("reverted, json marshal").Error()))), err
+// 	}
+// 	valenc := hexutil.Encode(jsonval)
+// 	return (valenc), err
+// }
 
 // HasVersioned returns a result containing a boolean on whether or not the IAVL tree
 // has a given key at a specific tree version.
-func (s *IavlProofService) HasVersioned(version int64) (hexutil.Bytes, error) {
+func (s *IavlProofService) HasVersioned(version int64) (bool, error) {
 
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
 
 	if !s.tree.VersionExists(version) {
-		return nil, iavl.ErrVersionDoesNotExist
+		return false, iavl.ErrVersionDoesNotExist
 	}
 
 	_, err := s.tree.GetImmutable(version)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
-	var res map[string]interface{}
-	res["hasVersion"] = true
-
-	hexres, err := ToHex(res)
-	if err != nil {
-		return nil, err
-	}
-
-	return hexres, nil
+	return true, nil
 }
 
 // Has returns a result containing a boolean on whether or not the IAVL tree
 // has a given key in the current version
-func (s *IavlProofService) Has(key []byte) (hexutil.Bytes, error) {
+func (s *IavlProofService) Has(key []byte) (bool, error) {
 
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
 
-	var res map[string]interface{}
-	res["has"] = s.tree.Has(key)
-
-	hexres, err := ToHex(res)
-	if err != nil {
-		return nil, err
-	}
-
-	return hexres, nil
+	return s.tree.Has(key), nil
 }
 
 // Get returns a result containing the index and value for a given
 // key based on the current state (version) of the tree.
 // If the key does not exist, Get returns the index of the next value.
-func (s *IavlProofService) Get(key []byte) (hexutil.Bytes, error) {
+func (s *IavlProofService) Get(key []byte) (json.RawMessage, error) {
 
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
@@ -141,7 +124,7 @@ func (s *IavlProofService) Get(key []byte) (hexutil.Bytes, error) {
 		return nil, e
 	}
 
-	hexres, err := ToHex(res)
+	hexres, err := json.Marshal(res)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +134,7 @@ func (s *IavlProofService) Get(key []byte) (hexutil.Bytes, error) {
 
 // GetByIndex returns a result containing the key and value for a given
 // index based on the current state (version) of the tree.
-func (s *IavlProofService) GetByIndex(index int64) (hexutil.Bytes, error) {
+func (s *IavlProofService) GetByIndex(index int64) (json.RawMessage, error) {
 
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
@@ -164,7 +147,8 @@ func (s *IavlProofService) GetByIndex(index int64) (hexutil.Bytes, error) {
 		return nil, e
 	}
 
-	hexres, err := ToHex(res)
+	hexres, err := json.Marshal(res)
+
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +173,7 @@ func createMembershipProof(tree *iavl.MutableTree, key []byte, exist *ics23.Exis
 // GetWithProof returns a result containing the IAVL tree version and value for
 // a given key based on the current state (version) of the tree including a
 // verifiable Merkle proof.
-func (s *IavlProofService) GetWithProof(key []byte) (hexutil.Bytes, error) {
+func (s *IavlProofService) GetWithProof(key []byte) (json.RawMessage, error) {
 
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
@@ -223,9 +207,9 @@ func (s *IavlProofService) GetWithProof(key []byte) (hexutil.Bytes, error) {
 		return nil, err
 	}
 
-	res["membershipproof"] = memproofbyte
+	res["proof"] = memproofbyte
 
-	hexres, err := ToHex(res)
+	hexres, err := json.Marshal(res)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +219,7 @@ func (s *IavlProofService) GetWithProof(key []byte) (hexutil.Bytes, error) {
 
 // GetVersioned returns a result containing the IAVL tree version and value
 // for a given key at a specific tree version.
-func (s *IavlProofService) GetVersioned(version int64, key []byte) (hexutil.Bytes, error) {
+func (s *IavlProofService) GetVersioned(version int64, key []byte) (json.RawMessage, error) {
 
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
@@ -253,7 +237,7 @@ func (s *IavlProofService) GetVersioned(version int64, key []byte) (hexutil.Byte
 	res["index"], res["value"] = s.tree.Get(key)
 	res["version"] = version
 
-	hexres, err := ToHex(res)
+	hexres, err := json.Marshal(res)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +270,7 @@ func (s *IavlProofService) GetVersioned(version int64, key []byte) (hexutil.Byte
 
 // Set returns a result after inserting a key/value pair into the IAVL tree
 // based on the current state (version) of the tree.
-func (s *IavlProofService) Set(key []byte, value []byte) (hexutil.Bytes, error) {
+func (s *IavlProofService) Set(key []byte, value []byte) (json.RawMessage, error) {
 
 	s.rwLock.Lock()
 	defer s.rwLock.Unlock()
@@ -308,7 +292,7 @@ func (s *IavlProofService) Set(key []byte, value []byte) (hexutil.Bytes, error) 
 	//that proof wil be validated with
 	//will be necessary to make 2 or 3 extension data & 2 agents
 
-	hexres, err := ToHex(res)
+	hexres, err := json.Marshal(res)
 	if err != nil {
 		return nil, err
 	}
@@ -362,12 +346,12 @@ func (s *IavlProofService) Set(key []byte, value []byte) (hexutil.Bytes, error) 
 // }
 
 // Hash returns the IAVL tree root hash based on the current state.
-func (s *IavlProofService) Hash(_ *empty.Empty) (hexutil.Bytes, error) {
+func (s *IavlProofService) Hash(_ *empty.Empty) (json.RawMessage, error) {
 
 	var res map[string]interface{}
 	res["hash"] = s.tree.Hash()
 
-	hexres, err := ToHex(res)
+	hexres, err := json.Marshal(res)
 	if err != nil {
 		return nil, err
 	}
