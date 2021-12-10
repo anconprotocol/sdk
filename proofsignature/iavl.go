@@ -117,7 +117,7 @@ func (s *IavlProofService) Get(key []byte) (json.RawMessage, error) {
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
 
-	var res map[string]interface{}
+	res := make(map[string]interface{})
 	res["index"], res["value"] = s.tree.Get(key)
 	if res["index"] == nil {
 		e := fmt.Errorf("The index requested does not exist")
@@ -139,7 +139,7 @@ func (s *IavlProofService) GetByIndex(index int64) (json.RawMessage, error) {
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
 
-	var res map[string]interface{}
+	res := make(map[string]interface{})
 
 	res["key"], res["value"] = s.tree.GetByIndex(index)
 	if res["key"] == nil {
@@ -178,7 +178,7 @@ func (s *IavlProofService) GetWithProof(key []byte) (json.RawMessage, error) {
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
 
-	var res map[string]interface{}
+	res := make(map[string]interface{})
 	var err error
 	var proof *iavl.RangeProof
 
@@ -233,7 +233,7 @@ func (s *IavlProofService) GetVersioned(version int64, key []byte) (json.RawMess
 		return nil, err
 	}
 
-	var res map[string]interface{}
+	res := make(map[string]interface{})
 	res["index"], res["value"] = s.tree.Get(key)
 	res["version"] = version
 
@@ -283,7 +283,7 @@ func (s *IavlProofService) Set(key []byte, value []byte) (json.RawMessage, error
 		return nil, errors.New("value cannot be nil")
 	}
 
-	var res map[string]interface{}
+	res := make(map[string]interface{})
 	res["updated"] = s.tree.Set(key, value)
 	//TODO
 	//emits a graphsync event kv commited
@@ -348,7 +348,7 @@ func (s *IavlProofService) Set(key []byte, value []byte) (json.RawMessage, error
 // Hash returns the IAVL tree root hash based on the current state.
 func (s *IavlProofService) Hash(_ *empty.Empty) (json.RawMessage, error) {
 
-	var res map[string]interface{}
+	res := make(map[string]interface{})
 	res["hash"] = s.tree.Hash()
 
 	hexres, err := json.Marshal(res)
