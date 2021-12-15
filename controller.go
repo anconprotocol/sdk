@@ -14,11 +14,10 @@ type AnconSyncContext struct {
 	PrivateKey *ecdsa.PrivateKey
 }
 
-func NewAnconSyncContext(s Storage, exchange graphsync.GraphExchange, ipfspeer *peer.AddrInfo, privateKey *ecdsa.PrivateKey) *AnconSyncContext {
+func NewAnconSyncContext(s Storage, exchange graphsync.GraphExchange, ipfspeer *peer.AddrInfo) *AnconSyncContext {
 	return &AnconSyncContext{
-		Store:      s,
-		Exchange:   exchange,
-		IPFSPeer:   ipfspeer,
-		PrivateKey: privateKey,
+		Store:    s,
+		Exchange: exchange,
+		IPFSPeer: ipfspeer,
 	}
 }
