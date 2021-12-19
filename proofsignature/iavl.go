@@ -202,7 +202,7 @@ func (s *IavlProofService) GetWithProof(key []byte) (json.RawMessage, error) {
 		return nil, err
 	}
 
-	memproofbyte, err := json.Marshal(memproof)
+	memproofbyte, err := memproof.Marshal()
 	if err != nil {
 		return nil, err
 	}
