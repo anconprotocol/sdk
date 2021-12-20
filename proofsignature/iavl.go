@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	ibc "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
+
 	"github.com/anconprotocol/sdk"
 	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/iavl"
@@ -210,7 +212,10 @@ func (s *IavlProofService) GetWithProof(key []byte) (json.RawMessage, error) {
 		return nil, err
 	}
 
-	res["proof"] = memproofbyte
+	mp := &ibc.MerkleProof{
+		Proofs: []*ics23.CommitmentProof{exproof},
+	}
+	res["proof"] = mp
 
 	hexres, err := json.Marshal(res)
 	if err != nil {
