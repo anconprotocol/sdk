@@ -185,17 +185,17 @@ func (s *IavlProofService) GetWithProof(key []byte) (json.RawMessage, error) {
 	var err error
 	var proof *iavl.RangeProof
 
-	res["value"], proof, err = s.tree.GetWithProof(key)
+	value, proof, err := s.tree.GetWithProof(key)
 	if err != nil {
 		return nil, err
 	}
 
-	if res["value"] == nil {
+	if value == nil {
 		s := fmt.Errorf("The key requested does not exist")
 		return nil, s
 	}
 
-	exp, err := convertExistenceProof(proof, key, res["value"].([]byte))
+	exp, err := convertExistenceProof(proof, key, value)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +206,9 @@ func (s *IavlProofService) GetWithProof(key []byte) (json.RawMessage, error) {
 	}
 
 	memproofbyte, err := memproof.Marshal()
+	if err != nil {
+		return nil, err
+	}
 	exproof := &ics23.CommitmentProof{}
 	err = exproof.Unmarshal(memproofbyte)
 
@@ -217,6 +220,7 @@ func (s *IavlProofService) GetWithProof(key []byte) (json.RawMessage, error) {
 		Proofs: []*ics23.CommitmentProof{exproof},
 	}
 	res["proof"] = mp
+	res["value"] = value
 
 	hexres, err := json.Marshal(res)
 	if err != nil {
