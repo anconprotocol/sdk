@@ -169,7 +169,8 @@ func createMembershipProof(tree *iavl.MutableTree, key []byte, exist *ics23.Exis
 			Exist: exist,
 		},
 	}
-	return ics23.CombineProofs([]*ics23.CommitmentProof{proof})
+	return proof, nil
+	// return ics23.CombineProofs([]*ics23.CommitmentProof{proof})
 }
 
 // GetWithProof returns a result containing the IAVL tree version and value for
