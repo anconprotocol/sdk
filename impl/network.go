@@ -175,7 +175,7 @@ func PrintProgress(ctx context.Context, pgChan <-chan gsync.ResponseProgress) {
 
 }
 
-var selectAll ipld.Node = func() ipld.Node {
+var SelectAll ipld.Node = func() ipld.Node {
 	ssb := builder.NewSelectorSpecBuilder(basicnode.Prototype.Any)
 	return ssb.ExploreRecursive(
 		ipldselector.RecursionLimitDepth(100), // default max
@@ -187,7 +187,7 @@ func FetchBlock(ctx context.Context, exchange graphsync.GraphExchange, ipfspeer 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	resps, errs := exchange.Request(ctx, ipfspeer.ID, c, selectAll)
+	resps, errs := exchange.Request(ctx, ipfspeer.ID, c, SelectAll)
 	for {
 		select {
 		case <-ctx.Done():
@@ -211,10 +211,37 @@ func PushBlock(ctx context.Context, exchange graphsync.GraphExchange, ipfspeer *
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	resps, errs := exchange.Request(ctx, ipfspeer.ID, c, selectAll, gsync.ExtensionData{
+	resps, errs := exchange.Request(ctx, ipfspeer.ID, c, SelectAll, gsync.ExtensionData{
 		Name: graphsync.ExtensionMetadata,
 		Data: []byte{},
 	})
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case _, ok := <-resps:
+			if !ok {
+				resps = nil
+			}
+		case err, ok := <-errs:
+			if !ok {
+				// done.
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("got an unexpected error: %s", err)
+			}
+		}
+	}
+}
+
+//Push block with extension data
+func PushBlockWithExtData(ctx context.Context, exchange graphsync.GraphExchange, ipfspeer *peer.AddrInfo, c ipld.Link, extensionData gsync.ExtensionData, selector ipld.Node) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	resps, errs := exchange.Request(ctx, ipfspeer.ID, c, selector, extensionData)
+
 	for {
 		select {
 		case <-ctx.Done():
