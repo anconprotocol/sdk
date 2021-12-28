@@ -6,15 +6,13 @@ import (
 
 	"time"
 
-	blocks "github.com/ipfs/go-block-format"
+	shell "github.com/ipfs/go-ipfs-api"
+	"github.com/ipfs/go-ipfs-api/options"
 
-	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-graphsync"
 	gsync "github.com/ipfs/go-graphsync"
 	gsmsg "github.com/ipfs/go-graphsync/message"
-	blockstore "github.com/ipld/go-car/v2/blockstore"
 	"github.com/ipld/go-ipld-prime"
-	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
 	ipldselector "github.com/ipld/go-ipld-prime/traversal/selector"
 	"github.com/ipld/go-ipld-prime/traversal/selector/builder"
@@ -47,7 +45,6 @@ func NewPeer(ctx context.Context, addr string) host.Host {
 	}
 
 	gsynchost, err := libp2p.New(
-		ctx,
 		// Use the keypair we generated
 		libp2p.Identity(priv),
 		libp2p.Security(noise.ID, noise.New),
@@ -82,34 +79,6 @@ func NewPeer(ctx context.Context, addr string) host.Host {
 		panic(err)
 	}
 	return gsynchost
-}
-
-//WriteCAR
-func ReadCAR() ([]cid.Cid, blocks.Block, datamodel.Node, error) {
-	//lsys := linkstore.NewStorageLinkSystemWithNewStorage(cidlink.DefaultLinkSystem())
-	ssb := builder.NewSelectorSpecBuilder(basicnode.Prototype.Any)
-	selector := ssb.ExploreAll(ssb.Matcher()).Node()
-
-	// car := carv1.NewSelectiveCar(context.Background(),
-	// 	lsys.ReadStore,
-	// 	[]carv1.Dag{{
-	// 		Root:     root,
-	// 		Selector: selector,
-	// 	}})
-	// file, err := os.ReadFile(filename)
-	// if err != nil {
-	// 	return err
-	// }
-
-	robs, _ := blockstore.OpenReadOnly("/home/dallant/Code/ancon-node/dagbridge-block-239-begin.car",
-		blockstore.UseWholeCIDs(true),
-	)
-
-	roots, err := robs.Roots()
-
-	res, _ := robs.Get(roots[0])
-
-	return roots, res, selector, err
 }
 
 type ReceivedMessage struct {
@@ -207,30 +176,9 @@ func FetchBlock(ctx context.Context, exchange graphsync.GraphExchange, ipfspeer 
 		}
 	}
 }
-func PushBlock(ctx context.Context, exchange graphsync.GraphExchange, ipfspeer *peer.AddrInfo, c ipld.Link) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+func PushBlock(ctx context.Context, ipfspeer *peer.AddrInfo, data []byte,c ipld.Link) error {
 
-	resps, errs := exchange.Request(ctx, ipfspeer.ID, c, selectAll, gsync.ExtensionData{
-		Name: graphsync.ExtensionMetadata,
-		Data: []byte{},
-	})
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case _, ok := <-resps:
-			if !ok {
-				resps = nil
-			}
-		case err, ok := <-errs:
-			if !ok {
-				// done.
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("got an unexpected error: %s", err)
-			}
-		}
-	}
+	s := shell.NewShell(ipfspeer.String())
+	_, err :=s.DagPutWithOpts(data, options.Dag.Pin("true"))
+	return err
 }
