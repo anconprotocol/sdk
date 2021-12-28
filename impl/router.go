@@ -91,3 +91,51 @@ func NewRouter(ctx context.Context, gsynchost host.Host, lsys linking.LinkSystem
 	}()
 	return exchange, pi
 }
+
+func NewRouterWithPeers(ctx context.Context, gsynchost host.Host, lsys linking.LinkSystem, peers []*peer.AddrInfo) gsync.GraphExchange {
+
+	network := gsnet.NewFromLibp2pHost(gsynchost)
+
+	// Add Ancon fsstore
+	exchange := graphsync.New(ctx, network, lsys)
+
+	// var receivedResponseData []byte
+	// var receivedRequestData []byte
+
+	exchange.RegisterIncomingResponseHook(
+		func(p peer.ID, responseData gsync.ResponseData, hookActions gsync.IncomingResponseHookActions) {
+			fmt.Println(responseData.Status().String(), responseData.RequestID())
+		})
+
+	exchange.RegisterIncomingRequestHook(func(p peer.ID, requestData gsync.RequestData, hookActions gsync.IncomingRequestHookActions) {
+		// var has bool
+		// receivedRequestData, has = requestData.Extension(td.extensionName)
+		// if !has {
+		// 	hookActions.TerminateWithError(errors.New("Missing extension"))
+		// } else {
+		// 	hookActions.SendExtensionData(td.extensionResponse)
+		// }
+		hookActions.ValidateRequest()
+		hookActions.UseLinkTargetNodePrototypeChooser(basicnode.Chooser)
+		fmt.Println(requestData.Root(), requestData.ID(), requestData.IsCancel())
+	})
+	finalResponseStatusChan := make(chan gsync.ResponseStatusCode, 1)
+	exchange.RegisterCompletedResponseListener(func(p peer.ID, request gsync.RequestData, status gsync.ResponseStatusCode) {
+		select {
+		case finalResponseStatusChan <- status:
+		default:
+		}
+	})
+
+	for _, pi := range peers {
+		err := network.ConnectTo(ctx, pi.ID)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	a := fmt.Sprintf("%s/p2p/%s", gsynchost.Addrs()[0].String(), gsynchost.ID().Pretty())
+	println(a)
+
+	return exchange
+}

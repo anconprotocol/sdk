@@ -10,6 +10,7 @@ import (
 	"github.com/anconprotocol/sdk"
 	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/iavl"
+	pb "github.com/cosmos/iavl/proto"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/ipfs/go-graphsync"
 	"github.com/pkg/errors"
@@ -230,6 +231,43 @@ func (s *IavlProofService) GetWithProof(key []byte) (json.RawMessage, error) {
 	return hexres, nil
 }
 
+// GetCommitmentProof returns a result containing the IAVL tree version and value for
+// a given key based on the current state (version) of the tree including a
+// verifiable existing or not existing Commitment proof.
+func (s *IavlProofService) GetCommitmentProof(key []byte) (json.RawMessage, error) {
+
+	s.rwLock.RLock()
+	defer s.rwLock.RUnlock()
+
+	res := make(map[string]interface{})
+	var err error
+
+	existenceProof, err := s.tree.GetMembershipProof(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if existenceProof == nil {
+		s := fmt.Errorf("The key requested does not exist")
+		return nil, s
+	}
+
+	nonMembershipProof, err := s.tree.GetNonMembershipProof(key)
+
+	mp := &ibc.MerkleProof{
+		Proofs: []*ics23.CommitmentProof{existenceProof, nonMembershipProof},
+	}
+
+	res["proof"] = mp
+
+	hexres, err := json.Marshal(res)
+	if err != nil {
+		return nil, err
+	}
+
+	return hexres, nil
+}
+
 // GetVersioned returns a result containing the IAVL tree version and value
 // for a given key at a specific tree version.
 func (s *IavlProofService) GetVersioned(version int64, key []byte) (json.RawMessage, error) {
@@ -316,18 +354,20 @@ func (s *IavlProofService) Set(key []byte, value []byte) (json.RawMessage, error
 // SaveVersion saves a new IAVL tree version to the DB based on the current
 // state (version) of the tree. It returns a result containing the hash and
 // new version number.
-// func (s *IavlProofService) saveVersion(_ *empty.Empty) (*pb.SaveVersionResponse, error) {
+func (s *IavlProofService) SaveVersion(_ *empty.Empty) ([]byte, error) {
 
-// 	s.rwLock.Lock()
-// 	defer s.rwLock.Unlock()
+	s.rwLock.Lock()
+	defer s.rwLock.Unlock()
 
-// 	root, version, err := s.tree.SaveVersion()
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	root, version, err := s.tree.SaveVersion()
+	if err != nil {
+		return nil, err
+	}
+	res := &pb.SaveVersionResponse{RootHash: root, Version: version}
+	resJson, err := json.Marshal(res)
 
-// 	return &pb.SaveVersionResponse{RootHash: root, Version: version}, nil
-// }
+	return resJson, nil
+}
 
 // DeleteVersion deletes an IAVL tree version from the DB. The version can then
 // no longer be accessed. It returns a result containing the version and root
