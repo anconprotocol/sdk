@@ -234,38 +234,42 @@ func (s *IavlProofService) GetWithProof(key []byte) (json.RawMessage, error) {
 // GetCommitmentProof returns a result containing the IAVL tree version and value for
 // a given key based on the current state (version) of the tree including a
 // verifiable existing or not existing Commitment proof.
-func (s *IavlProofService) GetCommitmentProof(key []byte) (json.RawMessage, error) {
+func (s *IavlProofService) GetCommitmentProof(key []byte, version int64) (json.RawMessage, error) {
 
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
 
-	res := make(map[string]interface{})
-	var err error
+	if s.tree.VersionExists(version) {
+		t, err := s.tree.GetImmutable(version)
+		if err != nil {
+			return nil, err
+		}
 
-	existenceProof, err := s.tree.GetMembershipProof(key)
-	if err != nil {
-		return nil, err
+		existenceProof, err := t.GetMembershipProof(key)
+		if err != nil {
+			return nil, err
+		}
+
+		if existenceProof == nil {
+			s := fmt.Errorf("The key requested does not exist")
+			return nil, s
+		}
+
+		nonMembershipProof, err := t.GetNonMembershipProof(key)
+
+		mp := &ibc.MerkleProof{
+			Proofs: []*ics23.CommitmentProof{existenceProof, nonMembershipProof},
+		}
+
+		hexres, err := json.Marshal(mp.Proofs)
+		if err != nil {
+			return nil, err
+		}
+
+		return hexres, nil
 	}
 
-	if existenceProof == nil {
-		s := fmt.Errorf("The key requested does not exist")
-		return nil, s
-	}
-
-	nonMembershipProof, err := s.tree.GetNonMembershipProof(key)
-
-	mp := &ibc.MerkleProof{
-		Proofs: []*ics23.CommitmentProof{existenceProof, nonMembershipProof},
-	}
-
-	res["proof"] = mp
-
-	hexres, err := json.Marshal(res)
-	if err != nil {
-		return nil, err
-	}
-
-	return hexres, nil
+	return nil, fmt.Errorf("invalid version")
 }
 
 // GetVersioned returns a result containing the IAVL tree version and value
