@@ -176,11 +176,11 @@ func FetchBlock(ctx context.Context, exchange graphsync.GraphExchange, ipfspeer 
 		}
 	}
 }
-func PushBlock(ctx context.Context, ipfsurl string, data []byte, c ipld.Link) error {
+func PushBlock(ctx context.Context, ipfsurl string, data []byte) (string, error) {
 
 	s := shell.NewShell(ipfsurl)
-	_, err := s.DagPutWithOpts(data, options.Dag.Pin("true"))
-	return err
+	return s.DagPutWithOpts(data, options.Dag.Pin("true"))
+
 }
 
 //Push block with extension data
