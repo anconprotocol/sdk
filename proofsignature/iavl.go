@@ -376,22 +376,29 @@ func (s *IavlProofService) SaveVersion(_ *empty.Empty) ([]byte, error) {
 // DeleteVersion deletes an IAVL tree version from the DB. The version can then
 // no longer be accessed. It returns a result containing the version and root
 // hash of the versioned tree that was deleted.
-// func (s *IavlProofService) deleteVersion(req *pb.DeleteVersionRequest) (*pb.DeleteVersionResponse, error) {
+func (s *IavlProofService) DeleteVersion(version int64) (json.RawMessage, error) {
 
-// 	s.rwLock.Lock()
-// 	defer s.rwLock.Unlock()
+	s.rwLock.Lock()
+	defer s.rwLock.Unlock()
 
-// 	iTree, err := s.tree.GetImmutable(req.Version)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	iTree, err := s.tree.GetImmutable(version)
+	if err != nil {
+		return nil, err
+	}
 
-// 	if err := s.tree.DeleteVersion(req.Version); err != nil {
-// 		return nil, err
-// 	}
+	if err := s.tree.DeleteVersion(version); err != nil {
+		return nil, err
+	}
 
-// 	return &pb.DeleteVersionResponse{RootHash: iTree.Hash(), Version: req.Version}, nil
-// }
+	res := make(map[string]interface{})
+
+	res["hash"] = iTree.Hash()
+	res["version"] = version
+
+	hexres, err := json.Marshal(res)
+
+	return hexres, nil
+}
 
 // Version returns the IAVL tree version based on the current state.
 // func (s *IavlProofService) Version(_ *empty.Empty) (*pb.VersionResponse, error) {
@@ -407,6 +414,7 @@ func (s *IavlProofService) Hash(_ *empty.Empty) (json.RawMessage, error) {
 
 	res := make(map[string]interface{})
 	res["hash"] = s.tree.Hash()
+	res["version"] = s.tree.Version()
 
 	hexres, err := json.Marshal(res)
 	if err != nil {
