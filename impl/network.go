@@ -54,12 +54,12 @@ func NewPeer(ctx context.Context, addr string) host.Host {
 		// support TLS connections
 		// Let's prevent our peer from having too many
 		// connections by attaching a connection manager.
-		mgr1 := connmgr.NewConnManager(
-			100,         // Lowwater
-			400,         // HighWater,
+
+		libp2p.ConnectionManager(connmgr.NewConnManager(
+			100, // Lowwater
+			400, // HighWater,
 			time.Millisecond,
-		)
-		libp2p.ConnectionManager(mgr1),
+		)),
 		// Attempt to open ports using uPNP for NATed hosts.
 		libp2p.NATPortMap(),
 		// Let this host use the DHT to find other hosts
