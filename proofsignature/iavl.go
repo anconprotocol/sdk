@@ -83,6 +83,14 @@ func NewIavlAPI(dagStore sdk.Storage, dagExchange graphsync.GraphExchange, db db
 // 	return (valenc), err
 // }
 
+func (s *IavlProofService) GetCurrentVersion() ([]byte, int8) {
+
+	s.rwLock.RLock()
+	defer s.rwLock.RUnlock()
+
+	return s.tree.Hash(), s.tree.Height()
+}
+
 // HasVersioned returns a result containing a boolean on whether or not the IAVL tree
 // has a given key at a specific tree version.
 func (s *IavlProofService) HasVersioned(version int64) (bool, error) {
