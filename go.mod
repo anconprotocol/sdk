@@ -9,7 +9,6 @@ require (
 	github.com/ipfs/go-graphsync v0.9.3
 	github.com/ipld/go-ipld-prime v0.14.0
 	github.com/libp2p/go-libp2p v0.14.4
-	github.com/libp2p/go-libp2p-connmgr v0.2.4
 	github.com/libp2p/go-libp2p-core v0.14.0
 	github.com/libp2p/go-libp2p-kad-dht v0.13.1
 	github.com/libp2p/go-libp2p-noise v0.3.0

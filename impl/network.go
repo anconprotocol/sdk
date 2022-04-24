@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"time"
-
 	shell "github.com/ipfs/go-ipfs-api"
 	"github.com/ipfs/go-ipfs-api/options"
 
@@ -18,7 +16,6 @@ import (
 	"github.com/ipld/go-ipld-prime/traversal/selector/builder"
 
 	"github.com/libp2p/go-libp2p"
-	connmgr "github.com/libp2p/go-libp2p-connmgr"
 	crypto "github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/host"
 	peer "github.com/libp2p/go-libp2p-core/peer"
@@ -51,15 +48,15 @@ func NewPeer(ctx context.Context, addr string) host.Host {
 		// Multiple listen addresses
 		libp2p.ListenAddrStrings(addr),
 
-		// support TLS connections
-		// Let's prevent our peer from having too many
-		// connections by attaching a connection manager.
+		// // support TLS connections
+		// // Let's prevent our peer from having too many
+		// // connections by attaching a connection manager.
 
-		libp2p.ConnectionManager(connmgr.NewConnManager(
-			100, // Lowwater
-			400, // HighWater,
-			time.Millisecond,
-		)),
+		// libp2p.ConnectionManager(connmgr.NewConnManager(
+		// 	100, // Lowwater
+		// 	400, // HighWater,
+		// 	time.Millisecond,
+		// )),
 		// Attempt to open ports using uPNP for NATed hosts.
 		libp2p.NATPortMap(),
 		// Let this host use the DHT to find other hosts
