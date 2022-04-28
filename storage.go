@@ -110,6 +110,86 @@ func NewStorage(folder string) Storage {
 		LinkSystem: lsys,
 	}
 }
+func (s *Storage) Get(path, id string) ([]byte, error) {
+
+	blocksdir, err := directory.CreateOrOpen(s.dataStore, []string{"blocks"}, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	key := strings.Split(path, "/")
+
+	ss := blocksdir.Sub(key)
+	bz, err := s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
+		return tr.Get(ss.Pack(tuple.Tuple{id})), nil
+	})
+
+	return bz.([]byte), err
+
+}
+func (s *Storage) Remove(path, id string) error {
+
+	blocksdir, err := directory.CreateOrOpen(s.dataStore, []string{"blocks"}, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	key := strings.Split(path, "/")
+
+	ss := blocksdir.Sub(key)
+	_, err = s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
+		tr.Clear(ss.Pack(tuple.Tuple{id}))
+		return nil, nil
+	})
+	return err
+}
+
+func (s *Storage) Put(path, id string, data []byte) (err error) {
+
+	blocksdir, err := directory.CreateOrOpen(s.dataStore, []string{"blocks"}, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	key := strings.Split(path, "/")
+
+	ss := blocksdir.Sub(key)
+	_, err = s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
+		tr.Set(ss.Pack(tuple.Tuple{id}), data)
+		return
+	})
+
+	return err
+
+}
+func (s *Storage) Filter(path string, limit int, reverse bool) (ac [][]byte, err error) {
+
+	blocksdir, err := directory.CreateOrOpen(s.dataStore, []string{"blocks"}, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	key := strings.Split(path, "/")
+
+	ss := blocksdir.Sub(key)
+
+	r, err := s.dataStore.ReadTransact(func(rtr fdb.ReadTransaction) (interface{}, error) {
+		var items [][]byte
+		ri := rtr.GetRange(ss, fdb.RangeOptions{
+			Reverse: reverse,
+			Limit:   limit,
+		}).Iterator()
+		for ri.Advance() {
+			kv := ri.MustGet()
+			t, err := ss.Unpack(kv.Key)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, t[0].([]byte))
+		}
+		return items, nil
+	})
+	if err == nil {
+		ac = r.([][]byte)
+	}
+	return
+}
 
 // eth-block	ipld	0x90	permanent	Ethereum Header (RLP)
 // eth-block-list	ipld	0x91	permanent	Ethereum Header List (RLP)
