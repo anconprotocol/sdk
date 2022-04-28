@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
+	"log"
 	"strings"
 	"time"
 
@@ -20,8 +19,11 @@ import (
 	"github.com/ipld/go-ipld-prime/linking"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
-	"github.com/ipld/go-ipld-prime/storage/fsstore"
 	"github.com/multiformats/go-multihash"
+
+	"github.com/apple/foundationdb/bindings/go/src/fdb"
+	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
+	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
 const (
@@ -29,7 +31,7 @@ const (
 )
 
 type Storage struct {
-	DataStore  fsstore.Store
+	dataStore  fdb.Database
 	LinkSystem linking.LinkSystem
 	RootHash   cidlink.Link
 }
@@ -61,56 +63,50 @@ func (s *Storage) LoadGenesis(cid string) {
 }
 
 func NewStorage(folder string) Storage {
-
-	userHomeDir, err := os.UserHomeDir()
+	fdb.MustAPIVersion(710)
+	db := fdb.MustOpenDefault()
+	blocksdir, err := directory.CreateOrOpen(db, []string{"blocks"}, nil)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
+	// userHomeDir, err := os.UserHomeDir()
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	DefaultNodeHome := filepath.Join(userHomeDir, folder)
-	store := fsstore.Store{}
-	store.InitDefaults(DefaultNodeHome)
+	// DefaultNodeHome := filepath.Join(userHomeDir, folder)
+	store := db
+	// store.InitDefaults(DefaultNodeHome)
 	lsys := cidlink.DefaultLinkSystem()
 	//   you just need a function that conforms to the ipld.BlockWriteOpener interface.
 	lsys.StorageWriteOpener = func(lnkCtx ipld.LinkContext) (io.Writer, ipld.BlockWriteCommitter, error) {
 		// change prefix
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
-			var key string
-			if lnkCtx.LinkPath.Len() == 0 {
-				key = lnk.String()
-			} else {
-				key = strings.Join([]string{lnk.String(), lnkCtx.LinkPath.String()}, "/")
-			}
+			key := strings.Split(lnkCtx.LinkPath.String(), "/")
 
-			wr, cb, err := store.PutStream(lnkCtx.Ctx)
-			if err != nil {
-				return fmt.Errorf("error while reading stream")
-			}
-			wr.Write(buf.Bytes())
-			cb(key)
+			ss := blocksdir.Sub(key)
+			_, err = db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
+				tr.Set(ss.Pack(tuple.Tuple{lnk.String()}), buf.Bytes())
+				return
+			})
 			return err
 		}, nil
 	}
-	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, link ipld.Link) (io.Reader, error) {
-		var key string
-		if lnkCtx.LinkPath.Len() == 0 {
-			key = link.String()
-		} else {
-			key = strings.Join([]string{link.String(), lnkCtx.LinkPath.String()}, "/")
-		}
+	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, lnk ipld.Link) (io.Reader, error) {
+		key := strings.Split(lnkCtx.LinkPath.String(), "/")
 
-		reader, err := store.GetStream(lnkCtx.Ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("path not found")
-		}
-		return reader, nil
+		ss := blocksdir.Sub(key)
+		bz, err := db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
+			return tr.Get(ss.Pack(tuple.Tuple{lnk.String()})), nil
+		})
+
+		return bytes.NewReader(bz.([]byte)), err
 	}
 
 	lsys.TrustedStorage = true
-
 	return Storage{
-		DataStore:  store,
+		dataStore:  store,
 		LinkSystem: lsys,
 	}
 }
