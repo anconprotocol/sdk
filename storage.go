@@ -88,7 +88,7 @@ func NewStorage(folder string) Storage {
 		// change prefix
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
-			key := strings.Split(lnkCtx.LinkPath.String(), "/")
+			key := []byte(lnkCtx.LinkPath.String())
 			tup := tuple.Tuple{key}
 			ss := blocksdir.Sub(tup)
 			_, err = db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
@@ -99,9 +99,9 @@ func NewStorage(folder string) Storage {
 		}, nil
 	}
 	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, lnk ipld.Link) (io.Reader, error) {
-		key := strings.Split(lnkCtx.LinkPath.String(), "/")
-
-		ss := blocksdir.Sub(key)
+		key := []byte(lnkCtx.LinkPath.String())
+		tup := tuple.Tuple{key}
+		ss := blocksdir.Sub(tup)
 		bz, err := db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 			return tr.Get(ss.Pack(tuple.Tuple{lnk.String()})), nil
 		})
@@ -118,7 +118,7 @@ func NewStorage(folder string) Storage {
 }
 func (s *Storage) Get(path, id string) ([]byte, error) {
 
-	key := strings.Split(path, "/")
+	key := []byte(path)
 	tup := tuple.Tuple{key}
 	ss := s.directory.Sub(tup)
 	bz, err := s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
@@ -129,7 +129,7 @@ func (s *Storage) Get(path, id string) ([]byte, error) {
 
 }
 func (s *Storage) Remove(path, id string) error {
-	key := strings.Split(path, "/")
+	key := []byte(path)
 	tup := tuple.Tuple{key}
 	ss := s.directory.Sub(tup)
 	_, err := s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
@@ -141,7 +141,7 @@ func (s *Storage) Remove(path, id string) error {
 
 func (s *Storage) Put(path, id string, data []byte) (err error) {
 
-	key := strings.Split(path, "/")
+	key := []byte(path)
 	tup := tuple.Tuple{key}
 	ss := s.directory.Sub(tup)
 	_, err = s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
@@ -157,7 +157,7 @@ func (s *Storage) Filter(path string, limit int, reverse bool) (ac [][]byte, err
 	if err != nil {
 		log.Fatal(err)
 	}
-	key := strings.Split(path, "/")
+	key := []byte(path)
 	tup := tuple.Tuple{key}
 	ss := s.directory.Sub(tup)
 
