@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,6 +34,7 @@ const (
 
 type Storage struct {
 	dataStore  fdb.Database
+	directory  directory.DirectorySubspace
 	LinkSystem linking.LinkSystem
 	RootHash   cidlink.Link
 }
@@ -65,16 +68,18 @@ func (s *Storage) LoadGenesis(cid string) {
 func NewStorage(folder string) Storage {
 	fdb.MustAPIVersion(630)
 	db := fdb.MustOpenDefault()
-	blocksdir, err := directory.CreateOrOpen(db, []string{"blocks"}, nil)
+
+	userHomeDir, err := os.UserHomeDir()
+	if err != nil {
+		panic(err)
+	}
+
+	DefaultNodeHome := filepath.Join(userHomeDir, folder)
+	blocksdir, err := directory.CreateOrOpen(db, []string{DefaultNodeHome}, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// userHomeDir, err := os.UserHomeDir()
-	// if err != nil {
-	// 	panic(err)
-	// }
 
-	// DefaultNodeHome := filepath.Join(userHomeDir, folder)
 	store := db
 	// store.InitDefaults(DefaultNodeHome)
 	lsys := cidlink.DefaultLinkSystem()
@@ -107,18 +112,15 @@ func NewStorage(folder string) Storage {
 	lsys.TrustedStorage = true
 	return Storage{
 		dataStore:  store,
+		directory:  blocksdir,
 		LinkSystem: lsys,
 	}
 }
 func (s *Storage) Get(path, id string) ([]byte, error) {
 
-	blocksdir, err := directory.CreateOrOpen(s.dataStore, []string{"blocks"}, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
 	key := strings.Split(path, "/")
 
-	ss := blocksdir.Sub(key)
+	ss := s.directory.Sub(key)
 	bz, err := s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 		return tr.Get(ss.Pack(tuple.Tuple{id})), nil
 	})
@@ -127,15 +129,10 @@ func (s *Storage) Get(path, id string) ([]byte, error) {
 
 }
 func (s *Storage) Remove(path, id string) error {
-
-	blocksdir, err := directory.CreateOrOpen(s.dataStore, []string{"blocks"}, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
 	key := strings.Split(path, "/")
 
-	ss := blocksdir.Sub(key)
-	_, err = s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
+	ss := s.directory.Sub(key)
+	_, err := s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 		tr.Clear(ss.Pack(tuple.Tuple{id}))
 		return nil, nil
 	})
@@ -144,13 +141,9 @@ func (s *Storage) Remove(path, id string) error {
 
 func (s *Storage) Put(path, id string, data []byte) (err error) {
 
-	blocksdir, err := directory.CreateOrOpen(s.dataStore, []string{"blocks"}, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
 	key := strings.Split(path, "/")
 
-	ss := blocksdir.Sub(key)
+	ss := s.directory.Sub(key)
 	_, err = s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 		tr.Set(ss.Pack(tuple.Tuple{id}), data)
 		return
@@ -161,13 +154,12 @@ func (s *Storage) Put(path, id string, data []byte) (err error) {
 }
 func (s *Storage) Filter(path string, limit int, reverse bool) (ac [][]byte, err error) {
 
-	blocksdir, err := directory.CreateOrOpen(s.dataStore, []string{"blocks"}, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	key := strings.Split(path, "/")
 
-	ss := blocksdir.Sub(key)
+	ss := s.directory.Sub(key)
 
 	r, err := s.dataStore.ReadTransact(func(rtr fdb.ReadTransaction) (interface{}, error) {
 		var items [][]byte
