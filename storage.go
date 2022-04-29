@@ -41,7 +41,8 @@ func (s *Storage) InitGenesis(moniker []byte) {
 	digest := crypto.Keccak256(moniker)
 	var buf bytes.Buffer
 	buf.WriteString(time.Now().GoString())
-	root, err := key.Sign(&buf, digest, nil)
+	root, err 
+	:= key.Sign(&buf, digest, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -63,7 +64,7 @@ func (s *Storage) LoadGenesis(cid string) {
 }
 
 func NewStorage(folder string) Storage {
-	fdb.MustAPIVersion(710)
+	fdb.MustAPIVersion(6324)
 	db := fdb.MustOpenDefault()
 	blocksdir, err := directory.CreateOrOpen(db, []string{"blocks"}, nil)
 	if err != nil {
