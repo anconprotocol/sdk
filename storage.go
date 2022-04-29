@@ -69,6 +69,8 @@ func NewStorage(folder string) Storage {
 	fdb.MustAPIVersion(630)
 	db := fdb.MustOpenDefault()
 
+	db.Options().SetTransactionRetryLimit(2)
+	db.Options().SetTransactionTimeout(30000)
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
 		panic(err)
