@@ -63,7 +63,7 @@ func (s *Storage) LoadGenesis(cid string) {
 }
 
 func NewStorage(folder string) Storage {
-	fdb.MustAPIVersion(6324)
+	fdb.MustAPIVersion(630)
 	db := fdb.MustOpenDefault()
 	blocksdir, err := directory.CreateOrOpen(db, []string{"blocks"}, nil)
 	if err != nil {
