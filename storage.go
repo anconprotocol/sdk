@@ -41,8 +41,7 @@ func (s *Storage) InitGenesis(moniker []byte) {
 	digest := crypto.Keccak256(moniker)
 	var buf bytes.Buffer
 	buf.WriteString(time.Now().GoString())
-	root, err 
-	:= key.Sign(&buf, digest, nil)
+	root, err := key.Sign(&buf, digest, nil)
 	if err != nil {
 		panic(err)
 	}
