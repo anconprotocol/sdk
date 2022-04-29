@@ -37,7 +37,7 @@ require (
 require github.com/tendermint/tm-db v0.6.4
 
 require (
-	github.com/apple/foundationdb/bindings/go v0.0.0-20220419010848-13a83dc77bc2
+	github.com/apple/foundationdb/bindings/go v0.0.0-20220225233552-7d7762ba77d3
 	github.com/ipfs/go-ipfs-api v0.3.0
 	github.com/ipfs/go-ipld-cbor v0.0.5 // indirect
 )
