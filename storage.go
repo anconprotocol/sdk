@@ -89,8 +89,8 @@ func NewStorage(folder string) Storage {
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
 			key := strings.Split(lnkCtx.LinkPath.String(), "/")
-
-			ss := blocksdir.Sub(key)
+			tup := tuple.Tuple{key}
+			ss := blocksdir.Sub(tup)
 			_, err = db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 				tr.Set(ss.Pack(tuple.Tuple{lnk.String()}), buf.Bytes())
 				return
@@ -119,8 +119,8 @@ func NewStorage(folder string) Storage {
 func (s *Storage) Get(path, id string) ([]byte, error) {
 
 	key := strings.Split(path, "/")
-
-	ss := s.directory.Sub(key)
+	tup := tuple.Tuple{key}
+	ss := s.directory.Sub(tup)
 	bz, err := s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 		return tr.Get(ss.Pack(tuple.Tuple{id})), nil
 	})
@@ -130,8 +130,8 @@ func (s *Storage) Get(path, id string) ([]byte, error) {
 }
 func (s *Storage) Remove(path, id string) error {
 	key := strings.Split(path, "/")
-
-	ss := s.directory.Sub(key)
+	tup := tuple.Tuple{key}
+	ss := s.directory.Sub(tup)
 	_, err := s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 		tr.Clear(ss.Pack(tuple.Tuple{id}))
 		return nil, nil
@@ -142,8 +142,8 @@ func (s *Storage) Remove(path, id string) error {
 func (s *Storage) Put(path, id string, data []byte) (err error) {
 
 	key := strings.Split(path, "/")
-
-	ss := s.directory.Sub(key)
+	tup := tuple.Tuple{key}
+	ss := s.directory.Sub(tup)
 	_, err = s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
 		tr.Set(ss.Pack(tuple.Tuple{id}), data)
 		return
@@ -158,8 +158,8 @@ func (s *Storage) Filter(path string, limit int, reverse bool) (ac [][]byte, err
 		log.Fatal(err)
 	}
 	key := strings.Split(path, "/")
-
-	ss := s.directory.Sub(key)
+	tup := tuple.Tuple{key}
+	ss := s.directory.Sub(tup)
 
 	r, err := s.dataStore.ReadTransact(func(rtr fdb.ReadTransaction) (interface{}, error) {
 		var items [][]byte
