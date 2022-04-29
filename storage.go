@@ -93,10 +93,13 @@ func NewStorage(folder string) Storage {
 			key := []byte(lnkCtx.LinkPath.String())
 			tup := tuple.Tuple{key}
 			ss := blocksdir.Sub(tup)
-			_, err = db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
-				tr.Set(ss.Pack(tuple.Tuple{lnk.String()}), buf.Bytes())
-				return
-			})
+			tr, err := db.CreateTransaction()
+			if err != nil {
+				return err
+			}
+
+			tr.Set(ss.Pack(tuple.Tuple{lnk.String()}), buf.Bytes())
+			tr.Commit().Get()
 			return err
 		}, nil
 	}
@@ -104,11 +107,15 @@ func NewStorage(folder string) Storage {
 		key := []byte(lnkCtx.LinkPath.String())
 		tup := tuple.Tuple{key}
 		ss := blocksdir.Sub(tup)
-		bz, err := db.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
-			return tr.Get(ss.Pack(tuple.Tuple{lnk.String()})), nil
-		})
+		tr, err := db.CreateTransaction()
+		if err != nil {
+			return nil, err
+		}
 
-		return bytes.NewReader(bz.([]byte)), err
+		v := tr.Get(ss.Pack(tuple.Tuple{[]byte(lnk.String())}))
+		tr.Commit().Get()
+
+		return bytes.NewReader(v.MustGet()), err
 	}
 
 	lsys.TrustedStorage = true
@@ -123,21 +130,28 @@ func (s *Storage) Get(path, id string) ([]byte, error) {
 	key := []byte(path)
 	tup := tuple.Tuple{key}
 	ss := s.directory.Sub(tup)
-	bz, err := s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
-		return tr.Get(ss.Pack(tuple.Tuple{id})), nil
-	})
+	tr, err := s.dataStore.CreateTransaction()
+	if err != nil {
+		return nil, err
+	}
 
-	return bz.([]byte), err
+	v := tr.Get(ss.Pack(tuple.Tuple{id}))
+	tr.Commit().Get()
+
+	return v.MustGet(), err
 
 }
 func (s *Storage) Remove(path, id string) error {
 	key := []byte(path)
 	tup := tuple.Tuple{key}
 	ss := s.directory.Sub(tup)
-	_, err := s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
-		tr.Clear(ss.Pack(tuple.Tuple{id}))
-		return nil, nil
-	})
+	tr, err := s.dataStore.CreateTransaction()
+	if err != nil {
+		return err
+	}
+
+	tr.Clear(ss.Pack(tuple.Tuple{id}))
+	tr.Commit().Get()
 	return err
 }
 
@@ -146,10 +160,13 @@ func (s *Storage) Put(path, id string, data []byte) (err error) {
 	key := []byte(path)
 	tup := tuple.Tuple{key}
 	ss := s.directory.Sub(tup)
-	_, err = s.dataStore.Transact(func(tr fdb.Transaction) (ret interface{}, err error) {
-		tr.Set(ss.Pack(tuple.Tuple{id}), data)
-		return
-	})
+	tr, err := s.dataStore.CreateTransaction()
+	if err != nil {
+		return err
+	}
+
+	tr.Set(ss.Pack(tuple.Tuple{id}), data)
+	tr.Commit().Get()
 
 	return err
 
@@ -162,27 +179,22 @@ func (s *Storage) Filter(path string, limit int, reverse bool) (ac [][]byte, err
 	key := []byte(path)
 	tup := tuple.Tuple{key}
 	ss := s.directory.Sub(tup)
+	tr, err := s.dataStore.CreateTransaction()
 
-	r, err := s.dataStore.ReadTransact(func(rtr fdb.ReadTransaction) (interface{}, error) {
-		var items [][]byte
-		ri := rtr.GetRange(ss, fdb.RangeOptions{
-			Reverse: reverse,
-			Limit:   limit,
-		}).Iterator()
-		for ri.Advance() {
-			kv := ri.MustGet()
-			t, err := ss.Unpack(kv.Key)
-			if err != nil {
-				return nil, err
-			}
-			items = append(items, t[0].([]byte))
+	var items [][]byte
+	ri := tr.GetRange(ss, fdb.RangeOptions{
+		Reverse: reverse,
+		Limit:   limit,
+	}).Iterator()
+	for ri.Advance() {
+		kv := ri.MustGet()
+		t, err := ss.Unpack(kv.Key)
+		if err != nil {
+			return nil, err
 		}
-		return items, nil
-	})
-	if err == nil {
-		ac = r.([][]byte)
+		items = append(items, t[0].([]byte))
 	}
-	return
+	return items, nil
 }
 
 // eth-block	ipld	0x90	permanent	Ethereum Header (RLP)
