@@ -94,7 +94,6 @@ func NewStorage(folder string) Storage {
 		return bytes.NewReader(value), err
 	}
 
-	defer db.Close()
 	lsys.TrustedStorage = true
 	return Storage{
 		dataStore:  db,
