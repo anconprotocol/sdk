@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/pebble"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-graphsync/ipldutil"
@@ -22,10 +23,6 @@ import (
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
 	"github.com/multiformats/go-multihash"
-
-	"github.com/apple/foundationdb/bindings/go/src/fdb"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/directory"
-	"github.com/apple/foundationdb/bindings/go/src/fdb/tuple"
 )
 
 const (
@@ -33,8 +30,7 @@ const (
 )
 
 type Storage struct {
-	dataStore  fdb.Database
-	directory  directory.DirectorySubspace
+	dataStore  *pebble.DB
 	LinkSystem linking.LinkSystem
 	RootHash   cidlink.Link
 }
@@ -66,23 +62,18 @@ func (s *Storage) LoadGenesis(cid string) {
 }
 
 func NewStorage(folder string) Storage {
-	fdb.MustAPIVersion(630)
-	db := fdb.MustOpenDefault()
-
-	db.Options().SetTransactionRetryLimit(2)
-	db.Options().SetTransactionTimeout(30000)
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
 		panic(err)
 	}
 
 	DefaultNodeHome := filepath.Join(userHomeDir, folder)
-	blocksdir, err := directory.CreateOrOpen(db, []string{DefaultNodeHome}, nil)
+	db, err := pebble.Open(DefaultNodeHome, &pebble.Options{})
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	store := db
 	// store.InitDefaults(DefaultNodeHome)
 	lsys := cidlink.DefaultLinkSystem()
 	//   you just need a function that conforms to the ipld.BlockWriteOpener interface.
@@ -90,112 +81,79 @@ func NewStorage(folder string) Storage {
 		// change prefix
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
-			key := []byte(lnkCtx.LinkPath.String())
-			tup := tuple.Tuple{key}
-			ss := blocksdir.Sub(tup)
-			tr, err := db.CreateTransaction()
-			if err != nil {
-				return err
-			}
-
-			tr.Set(ss.Pack(tuple.Tuple{lnk.String()}), buf.Bytes())
-			tr.Commit().Get()
-			return err
+			key := []byte(lnkCtx.LinkPath.String() + lnk.String())
+			return db.Set(key, buf.Bytes(), pebble.Sync)
 		}, nil
 	}
 	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, lnk ipld.Link) (io.Reader, error) {
-		key := []byte(lnkCtx.LinkPath.String())
-		tup := tuple.Tuple{key}
-		ss := blocksdir.Sub(tup)
-		tr, err := db.CreateTransaction()
-		if err != nil {
-			return nil, err
-		}
+		key := []byte(lnkCtx.LinkPath.String() + lnk.String())
 
-		v := tr.Get(ss.Pack(tuple.Tuple{[]byte(lnk.String())}))
-		tr.Commit().Get()
+		value, closer, err := db.Get(key)
+		defer closer.Close()
 
-		return bytes.NewReader(v.MustGet()), err
+		return bytes.NewReader(value), err
 	}
 
+	defer db.Close()
 	lsys.TrustedStorage = true
 	return Storage{
-		dataStore:  store,
-		directory:  blocksdir,
+		dataStore:  db,
 		LinkSystem: lsys,
 	}
 }
 func (s *Storage) Get(path, id string) ([]byte, error) {
 
-	key := []byte(path)
-	tup := tuple.Tuple{key}
-	ss := s.directory.Sub(tup)
-	tr, err := s.dataStore.CreateTransaction()
-	if err != nil {
-		return nil, err
-	}
+	key := []byte(path + id)
 
-	v := tr.Get(ss.Pack(tuple.Tuple{id}))
-	tr.Commit().Get()
+	value, closer, err := s.dataStore.Get(key)
+	defer closer.Close()
 
-	return v.MustGet(), err
+	return value, err
 
 }
 func (s *Storage) Remove(path, id string) error {
-	key := []byte(path)
-	tup := tuple.Tuple{key}
-	ss := s.directory.Sub(tup)
-	tr, err := s.dataStore.CreateTransaction()
-	if err != nil {
-		return err
-	}
+	key := []byte(path + id)
 
-	tr.Clear(ss.Pack(tuple.Tuple{id}))
-	tr.Commit().Get()
+	err := s.dataStore.Delete(key, pebble.Sync)
+
 	return err
 }
 
 func (s *Storage) Put(path, id string, data []byte) (err error) {
 
-	key := []byte(path)
-	tup := tuple.Tuple{key}
-	ss := s.directory.Sub(tup)
-	tr, err := s.dataStore.CreateTransaction()
-	if err != nil {
-		return err
-	}
+	key := []byte(path + id)
 
-	tr.Set(ss.Pack(tuple.Tuple{id}), data)
-	tr.Commit().Get()
+	err = s.dataStore.Set(key, data, pebble.Sync)
 
 	return err
 
 }
-func (s *Storage) Filter(path string, limit int, reverse bool) (ac [][]byte, err error) {
 
-	if err != nil {
-		log.Fatal(err)
-	}
-	key := []byte(path)
-	tup := tuple.Tuple{key}
-	ss := s.directory.Sub(tup)
-	tr, err := s.dataStore.CreateTransaction()
+// func (s *Storage) Filter(path string, limit int, reverse bool) (ac [][]byte, err error) {
 
-	var items [][]byte
-	ri := tr.GetRange(ss, fdb.RangeOptions{
-		Reverse: reverse,
-		Limit:   limit,
-	}).Iterator()
-	for ri.Advance() {
-		kv := ri.MustGet()
-		t, err := ss.Unpack(kv.Key)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, t[0].([]byte))
-	}
-	return items, nil
-}
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
+// 	key := []byte(path)
+// 	tup := tuple.Tuple{key}
+// 	ss := s.directory.Sub(tup)
+// 	tr, err := s.dataStore.CreateTransaction()
+
+// 	var items [][]byte
+// 	ri := tr.GetRange(ss, fdb.RangeOptions{
+// 		Reverse: reverse,
+// 		Limit:   limit,
+// 	}).Iterator()
+// 	for ri.Advance() {
+// 		kv := ri.MustGet()
+// 		t, err := ss.Unpack(kv.Key)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		items = append(items, t[0].([]byte))
+// 	}
+// 	return items, nil
+// }
 
 // eth-block	ipld	0x90	permanent	Ethereum Header (RLP)
 // eth-block-list	ipld	0x91	permanent	Ethereum Header List (RLP)
