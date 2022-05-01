@@ -6,16 +6,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 	"time"
-
-	ibc "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
 
 	ics23 "github.com/confio/ics23/go"
 	cosmosiavl "github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
+	"github.com/cosmos/cosmos-sdk/store/types"
+	cosmossdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/iavl"
-	pb "github.com/cosmos/iavl/proto"
+	ibc "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-graphsync/ipldutil"
@@ -28,6 +27,7 @@ import (
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
 	"github.com/multiformats/go-multihash"
+	abci "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -40,8 +40,6 @@ type Storage struct {
 	LinkSystem linking.LinkSystem
 	RootHash   cidlink.Link
 	iavlstore  *cosmosiavl.Store
-	rwLock     sync.RWMutex
-	tree       *iavl.MutableTree
 }
 
 func (s *Storage) InitGenesis(moniker []byte) {
@@ -70,23 +68,13 @@ func (s *Storage) LoadGenesis(cid string) {
 	s.RootHash = r
 }
 
-func NewStorage(db dbm.DB, version int64, cacheSize int) Storage {
-	tree, err := iavl.NewMutableTree(db, int(cacheSize))
-	iavlStore := cosmosiavl.UnsafeNewStore(tree)
-
-	if err != nil {
-		panic(err)
-	}
-
-	if _, err := tree.LoadVersion(version); err != nil {
-		panic(err)
-	}
+func NewStorage(db dbm.DB, cms cosmossdk.CommitMultiStore, version int64, cacheSize int) Storage {
+	cms.MountStoreWithDB(cosmossdk.NewKVStoreKey("anconprotocol"), cosmossdk.StoreTypeIAVL, db)
+	iavlStore := cms.GetStore(cosmossdk.NewKVStoreKey("anconprotocol")).(*cosmosiavl.Store)
 
 	lsys := cidlink.DefaultLinkSystem()
 	s := Storage{
 		dataStore:  db,
-		rwLock:     sync.RWMutex{},
-		tree:       tree,
 		iavlstore:  iavlStore,
 		LinkSystem: lsys,
 	}
@@ -96,9 +84,6 @@ func NewStorage(db dbm.DB, version int64, cacheSize int) Storage {
 		// change prefix
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
-
-			s.rwLock.Lock()
-			defer s.rwLock.Unlock()
 
 			path := []byte(lnkCtx.LinkPath.String())
 
@@ -111,14 +96,13 @@ func NewStorage(db dbm.DB, version int64, cacheSize int) Storage {
 		}, nil
 	}
 	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, lnk ipld.Link) (io.Reader, error) {
-		s.rwLock.Lock()
-		defer s.rwLock.Unlock()
 
 		path := []byte(lnkCtx.LinkPath.String())
 
 		kvs := prefix.NewStore(iavlStore, path)
 		value := kvs.Get([]byte(lnk.String()))
-		return bytes.NewReader(value), err
+		return bytes.NewReader(value), nil
+
 	}
 
 	lsys.TrustedStorage = true
@@ -127,8 +111,6 @@ func NewStorage(db dbm.DB, version int64, cacheSize int) Storage {
 }
 
 func (s *Storage) Get(path []byte, id string) ([]byte, error) {
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
 
 	kvs := prefix.NewStore(s.iavlstore, path)
 	value := kvs.Get([]byte(id))
@@ -136,8 +118,6 @@ func (s *Storage) Get(path []byte, id string) ([]byte, error) {
 }
 
 func (s *Storage) Remove(path []byte, id string) error {
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
 
 	kvs := prefix.NewStore(s.iavlstore, path)
 	kvs.Delete([]byte(id))
@@ -145,8 +125,6 @@ func (s *Storage) Remove(path []byte, id string) error {
 }
 
 func (s *Storage) Put(path []byte, id string, data []byte) (err error) {
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
 
 	kvs := prefix.NewStore(s.iavlstore, path)
 
@@ -156,8 +134,6 @@ func (s *Storage) Put(path []byte, id string, data []byte) (err error) {
 }
 
 func (s *Storage) Iterate(path []byte, start, end []byte) (dbm.Iterator, error) {
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
 
 	kvs := prefix.NewStore(s.iavlstore, path)
 
@@ -165,42 +141,26 @@ func (s *Storage) Iterate(path []byte, start, end []byte) (dbm.Iterator, error) 
 }
 
 func (s *Storage) Has(path []byte, id []byte) (bool, error) {
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
 
 	kvs := prefix.NewStore(s.iavlstore, path)
 
 	return kvs.Has(id), nil
 }
 
-func (s *Storage) GetTreeHeight() int8 {
-	return s.tree.Height()
-}
-
 func (s *Storage) GetTreeHash() []byte {
-	return s.tree.Hash()
+	return s.iavlstore.LastCommitID().Hash
 }
 
 func (s *Storage) GetTreeVersion() int64 {
-	return s.tree.Version()
+	return s.iavlstore.LastCommitID().Version
 }
 
 // SaveVersion saves a new IAVL tree version to the DB based on the current
 // state (version) of the tree. It returns a result containing the hash and
 // new version number.
-func (s *Storage) Commit() (*pb.SaveVersionResponse, error) {
+func (s *Storage) Commit() types.CommitID {
 
-	s.rwLock.Lock()
-	defer s.rwLock.Unlock()
-
-	root, version, err := s.tree.SaveVersion()
-	if err != nil {
-		return nil, err
-	}
-
-	res := &pb.SaveVersionResponse{RootHash: root, Version: version}
-
-	return res, nil
+	return s.iavlstore.Commit()
 }
 
 /*
@@ -221,51 +181,20 @@ func createMembershipProof(tree *iavl.MutableTree, key []byte, exist *ics23.Exis
 // GetWithProof returns a result containing the IAVL tree version and value for
 // a given key based on the current state (version) of the tree including a
 // verifiable Merkle proof.
-func (s *Storage) GetWithProof(key []byte) (json.RawMessage, error) {
-
-	s.rwLock.RLock()
-	defer s.rwLock.RUnlock()
+func (s *Storage) GetWithProof(version int64, key []byte) (json.RawMessage, error) {
 
 	res := make(map[string]interface{})
-	var err error
-	var proof *iavl.RangeProof
 
-	value, proof, err := s.tree.GetWithProof(key)
-	if err != nil {
-		return nil, err
-	}
-
-	if value == nil {
-		s := fmt.Errorf("The key requested does not exist")
-		return nil, s
-	}
-
-	exp, err := convertExistenceProof(proof, key, value)
-	if err != nil {
-		return nil, err
-	}
-
-	memproof, err := createMembershipProof(s.tree, key, exp)
-	if err != nil {
-		return nil, err
-	}
-
-	memproofbyte, err := memproof.Marshal()
-	if err != nil {
-		return nil, err
-	}
-	exproof := &ics23.CommitmentProof{}
-	err = exproof.Unmarshal(memproofbyte)
-
-	if err != nil {
-		return nil, err
-	}
-
-	mp := &ibc.MerkleProof{
-		Proofs: []*ics23.CommitmentProof{exproof},
-	}
+	q := fmt.Sprintf("anconprotocol%s", key)
+	keyz := []byte(q)
+	resp := s.iavlstore.Query(abci.RequestQuery{
+		Data:   []byte(keyz),
+		Path:   ("/key"),
+		Height: int64(version),
+		Prove:  true,
+	})
+	mp, err := ibc.ConvertProofs(resp.ProofOps)
 	res["proof"] = mp
-	res["value"] = value
 
 	hexres, err := json.Marshal(res)
 	if err != nil {
@@ -280,30 +209,16 @@ func (s *Storage) GetWithProof(key []byte) (json.RawMessage, error) {
 // verifiable existing or not existing Commitment proof.
 func (s *Storage) GetCommitmentProof(key []byte, version int64) (json.RawMessage, error) {
 
-	s.rwLock.RLock()
-	defer s.rwLock.RUnlock()
-
-	if s.tree.VersionExists(version) {
-		t, err := s.tree.GetImmutable(version)
-		if err != nil {
-			return nil, err
-		}
-
-		existenceProof, err := t.GetMembershipProof(key)
-		if err != nil {
-			return nil, err
-		}
-
-		if existenceProof == nil {
-			s := fmt.Errorf("The key requested does not exist")
-			return nil, s
-		}
-
-		nonMembershipProof, err := t.GetNonMembershipProof(key)
-
-		mp := &ibc.MerkleProof{
-			Proofs: []*ics23.CommitmentProof{existenceProof, nonMembershipProof},
-		}
+	if s.iavlstore.VersionExists(version) {
+		q := fmt.Sprintf("anconprotocol%s", key)
+		keyz := []byte(q)
+		resp := s.iavlstore.Query(abci.RequestQuery{
+			Data:   []byte(keyz),
+			Path:   ("/key"),
+			Height: int64(version),
+			Prove:  true,
+		})
+		mp, err := ibc.ConvertProofs(resp.ProofOps)
 
 		hexres, err := json.Marshal(mp.Proofs)
 		if err != nil {

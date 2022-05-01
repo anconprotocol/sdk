@@ -38,6 +38,7 @@ require (
 	github.com/cosmos/cosmos-sdk v0.44.3
 	github.com/ipfs/go-ipfs-api v0.3.0
 	github.com/ipfs/go-ipld-cbor v0.0.5 // indirect
+	github.com/tendermint/tendermint v0.34.14
 )
 
 require (
@@ -188,7 +189,6 @@ require (
 	github.com/subosito/gotenv v1.2.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tendermint/go-amino v0.16.0 // indirect
-	github.com/tendermint/tendermint v0.34.14 // indirect
 	github.com/umbracle/fastrlp v0.0.0-20210128110402-41364ca56ca8 // indirect
 	github.com/whyrusleeping/cbor-gen v0.0.0-20210219115102-f37d292932f2 // indirect
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
