@@ -1,4 +1,4 @@
-package proofsignature
+package sdk
 
 import (
 	"fmt"

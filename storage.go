@@ -2,15 +2,20 @@ package sdk
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
-	"log"
-	"os"
-	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/cockroachdb/pebble"
+	ibc "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
+
+	ics23 "github.com/confio/ics23/go"
+	cosmosiavl "github.com/cosmos/cosmos-sdk/store/iavl"
+	"github.com/cosmos/cosmos-sdk/store/prefix"
+	"github.com/cosmos/iavl"
+	pb "github.com/cosmos/iavl/proto"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-graphsync/ipldutil"
@@ -23,6 +28,7 @@ import (
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipld/go-ipld-prime/node/basicnode"
 	"github.com/multiformats/go-multihash"
+	dbm "github.com/tendermint/tm-db"
 )
 
 const (
@@ -30,9 +36,12 @@ const (
 )
 
 type Storage struct {
-	dataStore  *pebble.DB
+	dataStore  dbm.DB
 	LinkSystem linking.LinkSystem
 	RootHash   cidlink.Link
+	iavlstore  *cosmosiavl.Store
+	rwLock     sync.RWMutex
+	tree       *iavl.MutableTree
 }
 
 func (s *Storage) InitGenesis(moniker []byte) {
@@ -61,98 +70,250 @@ func (s *Storage) LoadGenesis(cid string) {
 	s.RootHash = r
 }
 
-func NewStorage(folder string) Storage {
-	userHomeDir, err := os.UserHomeDir()
+func NewStorage(db dbm.DB, version int64, cacheSize int) Storage {
+	tree, err := iavl.NewMutableTree(db, int(cacheSize))
+	iavlStore := cosmosiavl.UnsafeNewStore(tree)
+
 	if err != nil {
 		panic(err)
 	}
 
-	DefaultNodeHome := filepath.Join(userHomeDir, folder)
-	db, err := pebble.Open(DefaultNodeHome, &pebble.Options{})
-
-	if err != nil {
-		log.Fatal(err)
+	if _, err := tree.LoadVersion(version); err != nil {
+		panic(err)
 	}
 
-	// store.InitDefaults(DefaultNodeHome)
 	lsys := cidlink.DefaultLinkSystem()
+	s := Storage{
+		dataStore:  db,
+		rwLock:     sync.RWMutex{},
+		tree:       tree,
+		iavlstore:  iavlStore,
+		LinkSystem: lsys,
+	}
 	//   you just need a function that conforms to the ipld.BlockWriteOpener interface.
 	lsys.StorageWriteOpener = func(lnkCtx ipld.LinkContext) (io.Writer, ipld.BlockWriteCommitter, error) {
+
 		// change prefix
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
-			key := []byte(lnkCtx.LinkPath.String() + lnk.String())
-			return db.Set(key, buf.Bytes(), pebble.Sync)
+
+			s.rwLock.Lock()
+			defer s.rwLock.Unlock()
+
+			path := []byte(lnkCtx.LinkPath.String())
+
+			kvs := prefix.NewStore(iavlStore, path)
+
+			kvs.Set([]byte(lnk.String()), buf.Bytes())
+
+			return nil
+
 		}, nil
 	}
 	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, lnk ipld.Link) (io.Reader, error) {
-		key := []byte(lnkCtx.LinkPath.String() + lnk.String())
+		s.rwLock.Lock()
+		defer s.rwLock.Unlock()
 
-		value, closer, err := db.Get(key)
-		defer closer.Close()
+		path := []byte(lnkCtx.LinkPath.String())
 
+		kvs := prefix.NewStore(iavlStore, path)
+		value := kvs.Get([]byte(lnk.String()))
 		return bytes.NewReader(value), err
 	}
 
 	lsys.TrustedStorage = true
-	return Storage{
-		dataStore:  db,
-		LinkSystem: lsys,
+	return s
+}
+
+func (s *Storage) Get(path []byte, id string) ([]byte, error) {
+	s.rwLock.Lock()
+	defer s.rwLock.Unlock()
+
+	kvs := prefix.NewStore(s.iavlstore, path)
+	value := kvs.Get([]byte(id))
+	return value, nil
+}
+
+func (s *Storage) Remove(path []byte, id string) error {
+	s.rwLock.Lock()
+	defer s.rwLock.Unlock()
+
+	kvs := prefix.NewStore(s.iavlstore, path)
+	kvs.Delete([]byte(id))
+	return nil
+}
+
+func (s *Storage) Put(path []byte, id string, data []byte) (err error) {
+	s.rwLock.Lock()
+	defer s.rwLock.Unlock()
+
+	kvs := prefix.NewStore(s.iavlstore, path)
+
+	kvs.Set([]byte(id), data)
+
+	return nil
+}
+
+func (s *Storage) Iterate(path []byte, start, end []byte) (dbm.Iterator, error) {
+	s.rwLock.Lock()
+	defer s.rwLock.Unlock()
+
+	kvs := prefix.NewStore(s.iavlstore, path)
+
+	return kvs.Iterator(start, end), nil
+}
+
+func (s *Storage) Has(path []byte, id []byte) (bool, error) {
+	s.rwLock.Lock()
+	defer s.rwLock.Unlock()
+
+	kvs := prefix.NewStore(s.iavlstore, path)
+
+	return kvs.Has(id), nil
+}
+
+func (s *Storage) GetTreeHeight() int8 {
+	return s.tree.Height()
+}
+
+func (s *Storage) GetTreeHash() []byte {
+	return s.tree.Hash()
+}
+
+func (s *Storage) GetTreeVersion() int64 {
+	return s.tree.Version()
+}
+
+// SaveVersion saves a new IAVL tree version to the DB based on the current
+// state (version) of the tree. It returns a result containing the hash and
+// new version number.
+func (s *Storage) Commit() (*pb.SaveVersionResponse, error) {
+
+	s.rwLock.Lock()
+	defer s.rwLock.Unlock()
+
+	root, version, err := s.tree.SaveVersion()
+	if err != nil {
+		return nil, err
 	}
-}
-func (s *Storage) Get(path, id string) ([]byte, error) {
 
-	key := []byte(path + id)
+	res := &pb.SaveVersionResponse{RootHash: root, Version: version}
 
-	value, closer, err := s.dataStore.Get(key)
-	defer closer.Close()
-
-	return value, err
-
-}
-func (s *Storage) Remove(path, id string) error {
-	key := []byte(path + id)
-
-	err := s.dataStore.Delete(key, pebble.Sync)
-
-	return err
+	return res, nil
 }
 
-func (s *Storage) Put(path, id string, data []byte) (err error) {
-
-	key := []byte(path + id)
-
-	err = s.dataStore.Set(key, data, pebble.Sync)
-
-	return err
-
+/*
+CreateMembershipProof will produce a CommitmentProof that the given key (and queries value) exists in the iavl tree.
+If the key doesn't exist in the tree, this will return an error.
+*/
+func createMembershipProof(tree *iavl.MutableTree, key []byte, exist *ics23.ExistenceProof) (*ics23.CommitmentProof, error) {
+	// exist, err := createExistenceProof(tree, key)
+	proof := &ics23.CommitmentProof{
+		Proof: &ics23.CommitmentProof_Exist{
+			Exist: exist,
+		},
+	}
+	return proof, nil
+	// return ics23.CombineProofs([]*ics23.CommitmentProof{proof})
 }
 
-// func (s *Storage) Filter(path string, limit int, reverse bool) (ac [][]byte, err error) {
+// GetWithProof returns a result containing the IAVL tree version and value for
+// a given key based on the current state (version) of the tree including a
+// verifiable Merkle proof.
+func (s *Storage) GetWithProof(key []byte) (json.RawMessage, error) {
 
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	key := []byte(path)
-// 	tup := tuple.Tuple{key}
-// 	ss := s.directory.Sub(tup)
-// 	tr, err := s.dataStore.CreateTransaction()
+	s.rwLock.RLock()
+	defer s.rwLock.RUnlock()
 
-// 	var items [][]byte
-// 	ri := tr.GetRange(ss, fdb.RangeOptions{
-// 		Reverse: reverse,
-// 		Limit:   limit,
-// 	}).Iterator()
-// 	for ri.Advance() {
-// 		kv := ri.MustGet()
-// 		t, err := ss.Unpack(kv.Key)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		items = append(items, t[0].([]byte))
-// 	}
-// 	return items, nil
-// }
+	res := make(map[string]interface{})
+	var err error
+	var proof *iavl.RangeProof
+
+	value, proof, err := s.tree.GetWithProof(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if value == nil {
+		s := fmt.Errorf("The key requested does not exist")
+		return nil, s
+	}
+
+	exp, err := convertExistenceProof(proof, key, value)
+	if err != nil {
+		return nil, err
+	}
+
+	memproof, err := createMembershipProof(s.tree, key, exp)
+	if err != nil {
+		return nil, err
+	}
+
+	memproofbyte, err := memproof.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	exproof := &ics23.CommitmentProof{}
+	err = exproof.Unmarshal(memproofbyte)
+
+	if err != nil {
+		return nil, err
+	}
+
+	mp := &ibc.MerkleProof{
+		Proofs: []*ics23.CommitmentProof{exproof},
+	}
+	res["proof"] = mp
+	res["value"] = value
+
+	hexres, err := json.Marshal(res)
+	if err != nil {
+		return nil, err
+	}
+
+	return hexres, nil
+}
+
+// GetCommitmentProof returns a result containing the IAVL tree version and value for
+// a given key based on the current state (version) of the tree including a
+// verifiable existing or not existing Commitment proof.
+func (s *Storage) GetCommitmentProof(key []byte, version int64) (json.RawMessage, error) {
+
+	s.rwLock.RLock()
+	defer s.rwLock.RUnlock()
+
+	if s.tree.VersionExists(version) {
+		t, err := s.tree.GetImmutable(version)
+		if err != nil {
+			return nil, err
+		}
+
+		existenceProof, err := t.GetMembershipProof(key)
+		if err != nil {
+			return nil, err
+		}
+
+		if existenceProof == nil {
+			s := fmt.Errorf("The key requested does not exist")
+			return nil, s
+		}
+
+		nonMembershipProof, err := t.GetNonMembershipProof(key)
+
+		mp := &ibc.MerkleProof{
+			Proofs: []*ics23.CommitmentProof{existenceProof, nonMembershipProof},
+		}
+
+		hexres, err := json.Marshal(mp.Proofs)
+		if err != nil {
+			return nil, err
+		}
+
+		return hexres, nil
+	}
+
+	return nil, fmt.Errorf("invalid version")
+}
 
 // eth-block	ipld	0x90	permanent	Ethereum Header (RLP)
 // eth-block-list	ipld	0x91	permanent	Ethereum Header List (RLP)
