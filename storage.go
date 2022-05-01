@@ -122,6 +122,7 @@ func NewStorage(db dbm.DB, version int64, cacheSize int) Storage {
 	}
 
 	lsys.TrustedStorage = true
+	s.LinkSystem = lsys
 	return s
 }
 
