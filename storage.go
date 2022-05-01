@@ -70,17 +70,17 @@ func (s *Storage) LoadGenesis(cid string) {
 
 func NewStorage(db dbm.DB, cms cosmossdk.CommitMultiStore, version int64, cacheSize int) Storage {
 	cms.MountStoreWithDB(cosmossdk.NewKVStoreKey("anconprotocol"), cosmossdk.StoreTypeIAVL, db)
+	iavlStore := cms.GetCommitKVStore(cosmossdk.NewKVStoreKey("anconprotocol")).(*cosmosiavl.Store)
 
 	lsys := cidlink.DefaultLinkSystem()
 	s := Storage{
 		dataStore:  db,
-		iavlstore:  nil,
+		iavlstore:  iavlStore,
 		LinkSystem: lsys,
 	}
 	//   you just need a function that conforms to the ipld.BlockWriteOpener interface.
 	lsys.StorageWriteOpener = func(lnkCtx ipld.LinkContext) (io.Writer, ipld.BlockWriteCommitter, error) {
 
-		iavlStore := cms.GetStore(cosmossdk.NewKVStoreKey("anconprotocol")).(*cosmosiavl.Store)
 		// change prefix
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
@@ -96,7 +96,6 @@ func NewStorage(db dbm.DB, cms cosmossdk.CommitMultiStore, version int64, cacheS
 		}, nil
 	}
 	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, lnk ipld.Link) (io.Reader, error) {
-		iavlStore := cms.GetStore(cosmossdk.NewKVStoreKey("anconprotocol")).(*cosmosiavl.Store)
 
 		path := []byte(lnkCtx.LinkPath.String())
 
@@ -110,10 +109,7 @@ func NewStorage(db dbm.DB, cms cosmossdk.CommitMultiStore, version int64, cacheS
 	s.LinkSystem = lsys
 	return s
 }
-func (s *Storage) Init(cms cosmossdk.CommitMultiStore) {
-	s.iavlstore = cms.GetStore(cosmossdk.NewKVStoreKey("anconprotocol")).(*cosmosiavl.Store)
 
-}
 func (s *Storage) Get(path []byte, id string) ([]byte, error) {
 
 	kvs := prefix.NewStore(s.iavlstore, path)
