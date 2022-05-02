@@ -184,6 +184,10 @@ func (s *Storage) GetTreeVersion() int64 {
 	return s.tree.Version()
 }
 
+func (s *Storage) GetTree() *iavl.MutableTree {
+	return s.tree
+}
+
 // SaveVersion saves a new IAVL tree version to the DB based on the current
 // state (version) of the tree. It returns a result containing the hash and
 // new version number.
