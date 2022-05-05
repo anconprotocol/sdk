@@ -1,6 +1,8 @@
 package sdk
 
 import (
+	"github.com/ipld/go-ipld-prime/must"
+	basicnode "github.com/ipld/go-ipld-prime/node/basic"
 	abcitypes "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -34,8 +36,24 @@ func (app *AnconAppChain) DeliverTx(req abcitypes.RequestDeliverTx) abcitypes.Re
 		return abcitypes.ResponseDeliverTx{Code: code}
 	}
 
-	// TODO: Validate CID
-	return abcitypes.ResponseDeliverTx{Code: 0}
+	node := basicnode.NewBytes(req.Tx)
+	issuer, _ := node.LookupByString("issuer")
+	cid, _ := node.LookupByString("contentHash")
+	sig, _ := node.LookupByString("signature")
+	path, _ := node.LookupByString("path")
+
+	events := []abcitypes.Event{
+		{
+			Type: "dagblock",
+			Attributes: []abcitypes.EventAttribute{
+				{Key: []byte("issuer"), Value: []byte(must.String(issuer)), Index: true},
+				{Key: []byte("contentHash"), Value: []byte(must.String(cid)), Index: true},
+				{Key: []byte("signature"), Value: []byte(must.String(sig)), Index: true},
+				{Key: []byte("path"), Value: []byte(must.String(path)), Index: true},
+			},
+		},
+	}
+	return abcitypes.ResponseDeliverTx{Code: abcitypes.CodeTypeOK, Events: events}
 }
 
 func (app *AnconAppChain) CheckTx(req abcitypes.RequestCheckTx) abcitypes.ResponseCheckTx {
@@ -44,11 +62,13 @@ func (app *AnconAppChain) CheckTx(req abcitypes.RequestCheckTx) abcitypes.Respon
 }
 
 func (app *AnconAppChain) Commit() abcitypes.ResponseCommit {
-	app.storage.Commit()
-	return abcitypes.ResponseCommit{Data: []byte{}}
+	res, _ := app.storage.Commit()
+
+	return abcitypes.ResponseCommit{Data: res.RootHash, RetainHeight: res.Version}
 }
 
 func (app *AnconAppChain) Query(req abcitypes.RequestQuery) abcitypes.ResponseQuery {
+
 	return abcitypes.ResponseQuery{Code: 0}
 }
 
