@@ -162,6 +162,7 @@ type CosmosAnconAppChain struct { // nolint: maligned
 func NewCosmosAnconAppChain(name string, logger log.Logger, storage *Storage, db dbm.DB, txDecoder cosmossdk.TxDecoder, options ...func(*CosmosAnconAppChain),
 ) *CosmosAnconAppChain {
 	app := &CosmosAnconAppChain{
+		AnconAppChain:    &AnconAppChain{storage},
 		logger:           logger,
 		name:             name,
 		db:               db,
@@ -174,7 +175,6 @@ func NewCosmosAnconAppChain(name string, logger log.Logger, storage *Storage, db
 		txDecoder:        txDecoder,
 		fauxMerkleMode:   false,
 	}
-	app.storage = storage
 
 	for _, option := range options {
 		option(app)

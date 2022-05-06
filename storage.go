@@ -78,10 +78,6 @@ func NewStorage(db dbm.DB, version int64, cacheSize int) Storage {
 		panic(err)
 	}
 
-	if _, err := tree.LoadVersion(version); err != nil {
-		panic(err)
-	}
-
 	lsys := cidlink.DefaultLinkSystem()
 	s := Storage{
 		dataStore:  db,
