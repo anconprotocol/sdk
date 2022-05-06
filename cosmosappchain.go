@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -15,8 +16,6 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	baseapp "github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
@@ -62,99 +61,6 @@ type (
 	StoreLoader func(ms cosmossdk.CommitMultiStore) error
 )
 
-// CosmosAnconAppChain reflects the ABCI application implementation.
-type CosmosAnconAppChain struct { // nolint: maligned
-	*AnconAppChain
-	// initialized on creation
-	logger            log.Logger
-	name              string                     // application name from abci.Info
-	db                dbm.DB                     // common DB backend
-	cms               cosmossdk.CommitMultiStore // Main (uncached) state
-	storeLoader       StoreLoader                // function to handle store loading, may be overridden with SetStoreLoader()
-	router            cosmossdk.Router           // handle any kind of message
-	queryRouter       cosmossdk.QueryRouter      // router for redirecting query calls
-	grpcQueryRouter   *baseapp.GRPCQueryRouter   // router for redirecting gRPC query calls
-	msgServiceRouter  *baseapp.MsgServiceRouter  // router for redirecting Msg service messages
-	interfaceRegistry types.InterfaceRegistry
-	txDecoder         cosmossdk.TxDecoder // unmarshal []byte into cosmossdk.Tx
-
-	anteHandler    cosmossdk.AnteHandler  // ante handler for fee and auth
-	initChainer    cosmossdk.InitChainer  // initialize state with validators and state blob
-	beginBlocker   cosmossdk.BeginBlocker // logic to run before any txs
-	endBlocker     cosmossdk.EndBlocker   // logic to run after all txs, and to determine valset changes
-	addrPeerFilter cosmossdk.PeerFilter   // filter peers by address and port
-	idPeerFilter   cosmossdk.PeerFilter   // filter peers by node ID
-	fauxMerkleMode bool                   // if true, IAVL MountStores uses MountStoresDB for simulation speed.
-
-	// manages snapshots, i.e. dumps of app state at certain intervals
-	snapshotManager    *snapshots.Manager
-	snapshotInterval   uint64 // block interval between state sync snapshots
-	snapshotKeepRecent uint32 // recent state sync snapshots to keep
-
-	// volatile states:
-	//
-	// checkState is set on InitChain and reset on Commit
-	// deliverState is set on InitChain and BeginBlock and set to nil on Commit
-	checkState   *state // for CheckTx
-	deliverState *state // for DeliverTx
-
-	// an inter-block write-through cache provided to the context during deliverState
-	interBlockCache cosmossdk.MultiStorePersistentCache
-
-	// absent validators from begin block
-	voteInfos []abci.VoteInfo
-
-	// paramStore is used to query for ABCI consensus parameters from an
-	// application parameter store.
-	paramStore baseapp.ParamStore
-
-	// The minimum gas prices a validator is willing to accept for processing a
-	// transaction. This is mainly used for DoS and spam prevention.
-	minGasPrices cosmossdk.DecCoins
-
-	// initialHeight is the initial height at which we start the baseapp
-	initialHeight int64
-
-	// flag for sealing options and parameters to a BaseApp
-	sealed bool
-
-	// block height at which to halt the chain and gracefully shutdown
-	haltHeight uint64
-
-	// minimum block time (in Unix seconds) at which to halt the chain and gracefully shutdown
-	haltTime uint64
-
-	// minRetainBlocks defines the minimum block height offset from the current
-	// block being committed, such that all blocks past this offset are pruned
-	// from Tendermint. It is used as part of the process of determining the
-	// ResponseCommit.RetainHeight value during ABCI Commit. A value of 0 indicates
-	// that no blocks should be pruned.
-	//
-	// Note: Tendermint block pruning is dependant on this parameter in conunction
-	// with the unbonding (safety threshold) period, state pruning and state sync
-	// snapshot parameters to determine the correct minimum value of
-	// ResponseCommit.RetainHeight.
-	minRetainBlocks uint64
-
-	// application's version string
-	version string
-
-	// application's protocol version that increments on every upgrade
-	// if BaseApp is passed to the upgrade keeper's NewKeeper method.
-	appVersion uint64
-
-	// recovery handler for app.runTx method
-	// runTxRecoveryMiddleware recoveryMiddleware
-
-	// trace set will return full stack traces for errors in ABCI Log field
-	trace bool
-
-	storage *Storage
-	// indexEvents defines the set of events in the form {eventType}.{attributeKey},
-	// which informs Tendermint what to index. If empty, all events will be indexed.
-	indexEvents map[string]struct{}
-}
-
 // NewBaseApp returns a reference to an initialized CosmosAnconAppChain. It accepts a
 // variadic number of option functions, which act on the CosmosAnconAppChain to set
 // configuration choices.
@@ -163,7 +69,6 @@ type CosmosAnconAppChain struct { // nolint: maligned
 func NewCosmosAnconAppChain(name string, logger log.Logger, storage *Storage, db dbm.DB, txDecoder cosmossdk.TxDecoder, options ...func(*CosmosAnconAppChain),
 ) *CosmosAnconAppChain {
 	app := &CosmosAnconAppChain{
-		AnconAppChain:    &AnconAppChain{storage},
 		storage:          storage,
 		logger:           logger,
 		name:             name,
@@ -185,8 +90,6 @@ func NewCosmosAnconAppChain(name string, logger log.Logger, storage *Storage, db
 	if app.interBlockCache != nil {
 		app.cms.SetInterBlockCache(app.interBlockCache)
 	}
-
-	//	app.runTxRecoveryMiddleware = newDefaultRecoveryMiddleware()
 
 	return app
 }
@@ -774,4 +677,90 @@ func (app *CosmosAnconAppChain) runMsgs(ctx cosmossdk.Context, msgs []cosmossdk.
 		Log:    strings.TrimSpace(msgLogs.String()),
 		Events: events.ToABCIEvents(),
 	}, nil
+}
+
+func (app *CosmosAnconAppChain) SetOption(req abci.RequestSetOption) abci.ResponseSetOption {
+	return abci.ResponseSetOption{}
+}
+
+func (app *CosmosAnconAppChain) Info(req abci.RequestInfo) abci.ResponseInfo {
+	return abci.ResponseInfo{}
+}
+
+func (app *CosmosAnconAppChain) isValid(data []byte) uint32 {
+	return 0
+}
+
+func (app *CosmosAnconAppChain) DeliverTx(req abci.RequestDeliverTx) abci.ResponseDeliverTx {
+	code := app.isValid(req.Tx)
+	if code != 0 {
+		return abci.ResponseDeliverTx{Code: code}
+	}
+
+	// node := basicnode.NewBytes(req.Tx)
+	// issuer, _ := node.LookupByString("issuer")
+	// cid, _ := node.LookupByString("contentHash")
+	// sig, _ := node.LookupByString("signature")
+	// path, _ := node.LookupByString("path")
+
+	// events := []abci.Event{
+	// 	{
+	// 		Type: "dagblock",
+	// 		Attributes: []abci.EventAttribute{
+	// 			{Key: []byte("issuer"), Value: []byte(must.String(issuer)), Index: true},
+	// 			{Key: []byte("contentHash"), Value: []byte(must.String(cid)), Index: true},
+	// 			{Key: []byte("signature"), Value: []byte(must.String(sig)), Index: true},
+	// 			{Key: []byte("path"), Value: []byte(must.String(path)), Index: true},
+	// 		},
+	// 	},
+	// }
+	return abci.ResponseDeliverTx{Code: abci.CodeTypeOK}
+}
+
+func (app *CosmosAnconAppChain) CheckTx(req abci.RequestCheckTx) abci.ResponseCheckTx {
+	// Validate block exists and is signed
+	return abci.ResponseCheckTx{Code: 0}
+}
+
+func (app *CosmosAnconAppChain) Commit() abci.ResponseCommit {
+	res, _ := app.storage.Commit()
+
+	return abci.ResponseCommit{Data: res.RootHash, RetainHeight: res.Version}
+}
+
+func (app *CosmosAnconAppChain) Query(req abci.RequestQuery) abci.ResponseQuery {
+	resp := abci.ResponseQuery{Key: req.Data}
+
+	var err error
+	var item json.RawMessage
+	if req.Height == 0 {
+		item, err = app.storage.GetWithProof(resp.Key)
+		resp.Value = item
+
+	} else if req.Height > 0 {
+		item, err = app.storage.GetCommitmentProof(req.Data, req.Height)
+		resp.Value = item
+	}
+	if err != nil {
+		resp.Log = "key does not exist"
+	} else {
+		resp.Log = "exists"
+	}
+	return resp
+}
+
+func (app *CosmosAnconAppChain) ListSnapshots(abci.RequestListSnapshots) abci.ResponseListSnapshots {
+	return abci.ResponseListSnapshots{}
+}
+
+func (CosmosAnconAppChain) OfferSnapshot(abci.RequestOfferSnapshot) abci.ResponseOfferSnapshot {
+	return abci.ResponseOfferSnapshot{}
+}
+
+func (CosmosAnconAppChain) LoadSnapshotChunk(abci.RequestLoadSnapshotChunk) abci.ResponseLoadSnapshotChunk {
+	return abci.ResponseLoadSnapshotChunk{}
+}
+
+func (CosmosAnconAppChain) ApplySnapshotChunk(abci.RequestApplySnapshotChunk) abci.ResponseApplySnapshotChunk {
+	return abci.ResponseApplySnapshotChunk{}
 }
