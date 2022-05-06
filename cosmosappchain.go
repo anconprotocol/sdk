@@ -159,7 +159,7 @@ type CosmosAnconAppChain struct { // nolint: maligned
 // configuration choices.
 //
 // NOTE: The db is used to store the version number for now.
-func NewCosmosAnconAppChain(name string, logger log.Logger, db dbm.DB, txDecoder cosmossdk.TxDecoder, options ...func(*CosmosAnconAppChain),
+func NewCosmosAnconAppChain(name string, logger log.Logger, storage *Storage, db dbm.DB, txDecoder cosmossdk.TxDecoder, options ...func(*CosmosAnconAppChain),
 ) *CosmosAnconAppChain {
 	app := &CosmosAnconAppChain{
 		logger:           logger,
@@ -174,6 +174,7 @@ func NewCosmosAnconAppChain(name string, logger log.Logger, db dbm.DB, txDecoder
 		txDecoder:        txDecoder,
 		fauxMerkleMode:   false,
 	}
+	app.storage = storage
 
 	for _, option := range options {
 		option(app)
