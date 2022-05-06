@@ -149,6 +149,7 @@ type CosmosAnconAppChain struct { // nolint: maligned
 	// trace set will return full stack traces for errors in ABCI Log field
 	trace bool
 
+	storage *Storage
 	// indexEvents defines the set of events in the form {eventType}.{attributeKey},
 	// which informs Tendermint what to index. If empty, all events will be indexed.
 	indexEvents map[string]struct{}
@@ -163,6 +164,7 @@ func NewCosmosAnconAppChain(name string, logger log.Logger, storage *Storage, db
 ) *CosmosAnconAppChain {
 	app := &CosmosAnconAppChain{
 		AnconAppChain:    &AnconAppChain{storage},
+		storage:          storage,
 		logger:           logger,
 		name:             name,
 		db:               db,
