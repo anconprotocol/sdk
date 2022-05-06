@@ -1,8 +1,8 @@
 package sdk
 
 import (
-	"github.com/ipld/go-ipld-prime/must"
-	basicnode "github.com/ipld/go-ipld-prime/node/basic"
+	"encoding/json"
+
 	abcitypes "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -36,24 +36,24 @@ func (app *AnconAppChain) DeliverTx(req abcitypes.RequestDeliverTx) abcitypes.Re
 		return abcitypes.ResponseDeliverTx{Code: code}
 	}
 
-	node := basicnode.NewBytes(req.Tx)
-	issuer, _ := node.LookupByString("issuer")
-	cid, _ := node.LookupByString("contentHash")
-	sig, _ := node.LookupByString("signature")
-	path, _ := node.LookupByString("path")
+	// node := basicnode.NewBytes(req.Tx)
+	// issuer, _ := node.LookupByString("issuer")
+	// cid, _ := node.LookupByString("contentHash")
+	// sig, _ := node.LookupByString("signature")
+	// path, _ := node.LookupByString("path")
 
-	events := []abcitypes.Event{
-		{
-			Type: "dagblock",
-			Attributes: []abcitypes.EventAttribute{
-				{Key: []byte("issuer"), Value: []byte(must.String(issuer)), Index: true},
-				{Key: []byte("contentHash"), Value: []byte(must.String(cid)), Index: true},
-				{Key: []byte("signature"), Value: []byte(must.String(sig)), Index: true},
-				{Key: []byte("path"), Value: []byte(must.String(path)), Index: true},
-			},
-		},
-	}
-	return abcitypes.ResponseDeliverTx{Code: abcitypes.CodeTypeOK, Events: events}
+	// events := []abcitypes.Event{
+	// 	{
+	// 		Type: "dagblock",
+	// 		Attributes: []abcitypes.EventAttribute{
+	// 			{Key: []byte("issuer"), Value: []byte(must.String(issuer)), Index: true},
+	// 			{Key: []byte("contentHash"), Value: []byte(must.String(cid)), Index: true},
+	// 			{Key: []byte("signature"), Value: []byte(must.String(sig)), Index: true},
+	// 			{Key: []byte("path"), Value: []byte(must.String(path)), Index: true},
+	// 		},
+	// 	},
+	// }
+	return abcitypes.ResponseDeliverTx{Code: abcitypes.CodeTypeOK}
 }
 
 func (app *AnconAppChain) CheckTx(req abcitypes.RequestCheckTx) abcitypes.ResponseCheckTx {
@@ -68,8 +68,24 @@ func (app *AnconAppChain) Commit() abcitypes.ResponseCommit {
 }
 
 func (app *AnconAppChain) Query(req abcitypes.RequestQuery) abcitypes.ResponseQuery {
+	resp := abcitypes.ResponseQuery{Key: req.Data}
 
-	return abcitypes.ResponseQuery{Code: 0}
+	var err error
+	var item json.RawMessage
+	if req.Height == 0 {
+		item, err = app.storage.GetWithProof(resp.Key)
+		resp.Value = item
+
+	} else if req.Height > 0 {
+		item, err = app.storage.GetCommitmentProof(req.Data, req.Height)
+		resp.Value = item
+	}
+	if err != nil {
+		resp.Log = "key does not exist"
+	} else {
+		resp.Log = "exists"
+	}
+	return resp
 }
 
 func (AnconAppChain) InitChain(req abcitypes.RequestInitChain) abcitypes.ResponseInitChain {
