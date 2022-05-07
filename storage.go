@@ -38,10 +38,11 @@ type Storage struct {
 }
 
 var STORE_KEY = "anconprotocol"
+var STORE_KEY_TYPE = types.NewKVStoreKey(STORE_KEY)
 
 func NewStorage(key string, store types.CommitMultiStore, db dbm.DB) *Storage {
-	store.MountStoreWithDB(types.NewKVStoreKey(STORE_KEY), types.StoreTypeIAVL, db)
-
+	store.MountStoreWithDB(STORE_KEY_TYPE, types.StoreTypeIAVL, nil)
+	kvstore := store.GetCommitStore(STORE_KEY_TYPE)
 	lsys := cidlink.DefaultLinkSystem()
 	s := Storage{
 		dataStore:  store,
@@ -54,11 +55,9 @@ func NewStorage(key string, store types.CommitMultiStore, db dbm.DB) *Storage {
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
 
-			store := s.dataStore.GetCommitStore(types.NewKVStoreKey(STORE_KEY))
-
 			path := []byte(lnkCtx.LinkPath.String())
 
-			kvs := prefix.NewStore(store.(types.CommitKVStore), path)
+			kvs := prefix.NewStore(kvstore.(types.CommitKVStore), path)
 
 			kvs.Set([]byte(lnk.String()), buf.Bytes())
 
@@ -68,10 +67,9 @@ func NewStorage(key string, store types.CommitMultiStore, db dbm.DB) *Storage {
 	}
 	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, lnk ipld.Link) (io.Reader, error) {
 
-		store := s.dataStore.GetCommitStore(types.NewKVStoreKey(STORE_KEY))
 		path := []byte(lnkCtx.LinkPath.String())
 
-		kvs := prefix.NewStore(store.(types.CommitKVStore), path)
+		kvs := prefix.NewStore(kvstore.(types.CommitKVStore), path)
 		value := kvs.Get([]byte(lnk.String()))
 		return bytes.NewReader(value), nil
 	}
@@ -83,21 +81,21 @@ func NewStorage(key string, store types.CommitMultiStore, db dbm.DB) *Storage {
 
 func (s *Storage) Get(path []byte, id string) ([]byte, error) {
 
-	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(STORE_KEY_TYPE)
 	kvs := prefix.NewStore(store, path)
 	value := kvs.Get([]byte(id))
 	return value, nil
 }
 
 func (s *Storage) Remove(path []byte, id string) error {
-	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(STORE_KEY_TYPE)
 	kvs := prefix.NewStore(store, path)
 	kvs.Delete([]byte(id))
 	return nil
 }
 
 func (s *Storage) Put(path []byte, id string, data []byte) (err error) {
-	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(STORE_KEY_TYPE)
 	kvs := prefix.NewStore(store, path)
 
 	kvs.Set([]byte(id), data)
@@ -106,14 +104,14 @@ func (s *Storage) Put(path []byte, id string, data []byte) (err error) {
 }
 
 func (s *Storage) Iterate(path []byte, start, end []byte) (dbm.Iterator, error) {
-	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(STORE_KEY_TYPE)
 	kvs := prefix.NewStore(store, path)
 
 	return kvs.Iterator(start, end), nil
 }
 
 func (s *Storage) Has(path []byte, id []byte) (bool, error) {
-	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(STORE_KEY_TYPE)
 	kvs := prefix.NewStore(store, path)
 
 	return kvs.Has(id), nil
@@ -149,8 +147,8 @@ func (s *Storage) GetWithProof(key []byte, height int64) (json.RawMessage, error
 
 	// create cache manager to unwrap
 	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
-	mngr.GetStoreCache(types.NewKVStoreKey(STORE_KEY), s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY)))
-	iavlstore := mngr.Unwrap(types.NewKVStoreKey(STORE_KEY)).(*iavl.Store)
+	mngr.GetStoreCache(STORE_KEY_TYPE, s.dataStore.GetCommitKVStore(STORE_KEY_TYPE))
+	iavlstore := mngr.Unwrap(STORE_KEY_TYPE).(*iavl.Store)
 
 	queryableStore := store.Queryable(iavlstore)
 
@@ -183,8 +181,8 @@ func (s *Storage) GetCommitmentProof(key []byte, version int64) (json.RawMessage
 
 	// create cache manager to unwrap
 	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
-	mngr.GetStoreCache(types.NewKVStoreKey(STORE_KEY), s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY)))
-	iavlstore := mngr.Unwrap(types.NewKVStoreKey(STORE_KEY)).(*iavl.Store)
+	mngr.GetStoreCache(STORE_KEY_TYPE, s.dataStore.GetCommitKVStore(STORE_KEY_TYPE))
+	iavlstore := mngr.Unwrap(STORE_KEY_TYPE).(*iavl.Store)
 
 	queryableStore := store.Queryable(iavlstore)
 
