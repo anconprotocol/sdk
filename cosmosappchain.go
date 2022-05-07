@@ -16,7 +16,10 @@ import (
 
 	baseapp "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/store"
+	"github.com/cosmos/cosmos-sdk/store/cache"
+	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
+	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -726,7 +729,12 @@ func (app *CosmosAnconAppChain) Commit() abci.ResponseCommit {
 }
 
 func (app *CosmosAnconAppChain) Query(req abci.RequestQuery) abci.ResponseQuery {
-	return app.storage.dataStore.Query(req)
+	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
+	mngr.GetStoreCache(types.NewKVStoreKey(STORE_KEY), app.cms.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY)))
+	iavlstore := mngr.Unwrap(types.NewKVStoreKey(STORE_KEY)).(*iavl.Store)
+
+	queryableStore := store.Queryable(iavlstore)
+	return queryableStore.Query(req)
 }
 
 func (app *CosmosAnconAppChain) ListSnapshots(abci.RequestListSnapshots) abci.ResponseListSnapshots {
