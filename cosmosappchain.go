@@ -1,7 +1,6 @@
 package sdk
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -721,32 +720,13 @@ func (app *CosmosAnconAppChain) CheckTx(req abci.RequestCheckTx) abci.ResponseCh
 	// Validate block exists and is signed
 	return abci.ResponseCheckTx{Code: 0}
 }
-
 func (app *CosmosAnconAppChain) Commit() abci.ResponseCommit {
-	res, _ := app.storage.Commit()
-
-	return abci.ResponseCommit{Data: res.RootHash, RetainHeight: res.Version}
+	res := app.cms.Commit()
+	return abci.ResponseCommit{Data: res.Hash, RetainHeight: res.Version}
 }
 
 func (app *CosmosAnconAppChain) Query(req abci.RequestQuery) abci.ResponseQuery {
-	resp := abci.ResponseQuery{Key: req.Data}
-
-	var err error
-	var item json.RawMessage
-	if req.Height == 0 {
-		item, err = app.storage.GetWithProof(resp.Key)
-		resp.Value = item
-
-	} else if req.Height > 0 {
-		item, err = app.storage.GetCommitmentProof(req.Data, req.Height)
-		resp.Value = item
-	}
-	if err != nil {
-		resp.Log = "key does not exist"
-	} else {
-		resp.Log = "exists"
-	}
-	return resp
+	return app.storage.dataStore.Query(req)
 }
 
 func (app *CosmosAnconAppChain) ListSnapshots(abci.RequestListSnapshots) abci.ResponseListSnapshots {

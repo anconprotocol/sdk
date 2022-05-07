@@ -1,20 +1,25 @@
 package sdk
 
 import (
-	"encoding/json"
-
+	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	abcitypes "github.com/tendermint/tendermint/abci/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 type AnconAppChain struct {
-	storage *Storage
+	StorageManager *Storage
+
+	Store *rootmulti.Store
 }
 
 var _ abcitypes.Application = (*AnconAppChain)(nil)
 
-func NewAnconAppChain(storage *Storage) *AnconAppChain {
+func NewAnconAppChain(key string, db dbm.DB) *AnconAppChain {
+	store := rootmulti.NewStore(db)
+
 	return &AnconAppChain{
-		storage: storage,
+		Store:          store,
+		StorageManager: NewStorage(key, store),
 	}
 }
 
@@ -62,30 +67,12 @@ func (app *AnconAppChain) CheckTx(req abcitypes.RequestCheckTx) abcitypes.Respon
 }
 
 func (app *AnconAppChain) Commit() abcitypes.ResponseCommit {
-	res, _ := app.storage.Commit()
-
-	return abcitypes.ResponseCommit{Data: res.RootHash, RetainHeight: res.Version}
+	res := app.Store.Commit()
+	return abcitypes.ResponseCommit{Data: res.Hash, RetainHeight: res.Version}
 }
 
 func (app *AnconAppChain) Query(req abcitypes.RequestQuery) abcitypes.ResponseQuery {
-	resp := abcitypes.ResponseQuery{Key: req.Data}
-
-	var err error
-	var item json.RawMessage
-	if req.Height == 0 {
-		item, err = app.storage.GetWithProof(resp.Key)
-		resp.Value = item
-
-	} else if req.Height > 0 {
-		item, err = app.storage.GetCommitmentProof(req.Data, req.Height)
-		resp.Value = item
-	}
-	if err != nil {
-		resp.Log = "key does not exist"
-	} else {
-		resp.Log = "exists"
-	}
-	return resp
+	return app.Store.Query(req)
 }
 
 func (AnconAppChain) InitChain(req abcitypes.RequestInitChain) abcitypes.ResponseInitChain {
