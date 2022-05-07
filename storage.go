@@ -54,11 +54,11 @@ func NewStorage(key string, store types.CommitMultiStore, db dbm.DB) *Storage {
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
 
-			store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
+			store := s.dataStore.GetCommitStore(types.NewKVStoreKey(STORE_KEY))
 
 			path := []byte(lnkCtx.LinkPath.String())
 
-			kvs := prefix.NewStore(store, path)
+			kvs := prefix.NewStore(store.(types.CommitKVStore), path)
 
 			kvs.Set([]byte(lnk.String()), buf.Bytes())
 
@@ -68,10 +68,10 @@ func NewStorage(key string, store types.CommitMultiStore, db dbm.DB) *Storage {
 	}
 	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, lnk ipld.Link) (io.Reader, error) {
 
-		store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
+		store := s.dataStore.GetCommitStore(types.NewKVStoreKey(STORE_KEY))
 		path := []byte(lnkCtx.LinkPath.String())
 
-		kvs := prefix.NewStore(store, path)
+		kvs := prefix.NewStore(store.(types.CommitKVStore), path)
 		value := kvs.Get([]byte(lnk.String()))
 		return bytes.NewReader(value), nil
 	}
