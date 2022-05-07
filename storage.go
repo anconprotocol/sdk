@@ -52,7 +52,7 @@ func NewStorage(key string, store *rootmulti.Store) *Storage {
 		buf := bytes.Buffer{}
 		return &buf, func(lnk ipld.Link) error {
 
-			store := s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY))
+			store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
 
 			path := []byte(lnkCtx.LinkPath.String())
 
@@ -66,7 +66,7 @@ func NewStorage(key string, store *rootmulti.Store) *Storage {
 	}
 	lsys.StorageReadOpener = func(lnkCtx ipld.LinkContext, lnk ipld.Link) (io.Reader, error) {
 
-		store := s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY))
+		store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
 		path := []byte(lnkCtx.LinkPath.String())
 
 		kvs := prefix.NewStore(store, path)
@@ -81,21 +81,21 @@ func NewStorage(key string, store *rootmulti.Store) *Storage {
 
 func (s *Storage) Get(path []byte, id string) ([]byte, error) {
 
-	store := s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
 	kvs := prefix.NewStore(store, path)
 	value := kvs.Get([]byte(id))
 	return value, nil
 }
 
 func (s *Storage) Remove(path []byte, id string) error {
-	store := s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
 	kvs := prefix.NewStore(store, path)
 	kvs.Delete([]byte(id))
 	return nil
 }
 
 func (s *Storage) Put(path []byte, id string, data []byte) (err error) {
-	store := s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
 	kvs := prefix.NewStore(store, path)
 
 	kvs.Set([]byte(id), data)
@@ -104,14 +104,14 @@ func (s *Storage) Put(path []byte, id string, data []byte) (err error) {
 }
 
 func (s *Storage) Iterate(path []byte, start, end []byte) (dbm.Iterator, error) {
-	store := s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
 	kvs := prefix.NewStore(store, path)
 
 	return kvs.Iterator(start, end), nil
 }
 
 func (s *Storage) Has(path []byte, id []byte) (bool, error) {
-	store := s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY))
+	store := s.dataStore.GetKVStore(types.NewKVStoreKey(STORE_KEY))
 	kvs := prefix.NewStore(store, path)
 
 	return kvs.Has(id), nil
