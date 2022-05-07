@@ -8,8 +8,10 @@ import (
 
 	ibc "github.com/cosmos/ibc-go/v2/modules/core/23-commitment/types"
 
+	"github.com/cosmos/cosmos-sdk/store"
+	"github.com/cosmos/cosmos-sdk/store/cache"
+	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime"
@@ -30,15 +32,15 @@ const (
 )
 
 type Storage struct {
-	dataStore  *rootmulti.Store
+	dataStore  types.CommitMultiStore
 	LinkSystem linking.LinkSystem
 	RootHash   cidlink.Link
 }
 
 var STORE_KEY = "anconprotocol"
 
-func NewStorage(key string, store *rootmulti.Store) *Storage {
-	store.MountStoreWithDB(types.NewKVStoreKey(STORE_KEY), types.StoreTypeIAVL, nil)
+func NewStorage(key string, store types.CommitMultiStore, db dbm.DB) *Storage {
+	store.MountStoreWithDB(types.NewKVStoreKey(STORE_KEY), types.StoreTypeIAVL, db)
 
 	lsys := cidlink.DefaultLinkSystem()
 	s := Storage{
@@ -145,8 +147,15 @@ If the key doesn't exist in the tree, this will return an error.
 // verifiable Merkle proof.
 func (s *Storage) GetWithProof(key []byte, height int64) (json.RawMessage, error) {
 
+	// create cache manager to unwrap
+	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
+	mngr.GetStoreCache(types.NewKVStoreKey(STORE_KEY), s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY)))
+	iavlstore := mngr.Unwrap(types.NewKVStoreKey(STORE_KEY)).(*iavl.Store)
+
+	queryableStore := store.Queryable(iavlstore)
+
 	result := make(map[string]interface{})
-	res := s.dataStore.Query(abci.RequestQuery{
+	res := queryableStore.Query(abci.RequestQuery{
 		Data:   []byte(key),
 		Path:   ("/key"),
 		Height: height,
@@ -172,7 +181,14 @@ func (s *Storage) GetWithProof(key []byte, height int64) (json.RawMessage, error
 // verifiable existing or not existing Commitment proof.
 func (s *Storage) GetCommitmentProof(key []byte, version int64) (json.RawMessage, error) {
 
-	res := s.dataStore.Query(abci.RequestQuery{
+	// create cache manager to unwrap
+	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
+	mngr.GetStoreCache(types.NewKVStoreKey(STORE_KEY), s.dataStore.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY)))
+	iavlstore := mngr.Unwrap(types.NewKVStoreKey(STORE_KEY)).(*iavl.Store)
+
+	queryableStore := store.Queryable(iavlstore)
+
+	res := queryableStore.Query(abci.RequestQuery{
 		Data:   []byte(key),
 		Path:   ("/key"),
 		Height: version,

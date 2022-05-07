@@ -1,7 +1,10 @@
 package sdk
 
 import (
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
+	"github.com/cosmos/cosmos-sdk/store"
+	"github.com/cosmos/cosmos-sdk/store/cache"
+	"github.com/cosmos/cosmos-sdk/store/iavl"
+	"github.com/cosmos/cosmos-sdk/store/types"
 	abcitypes "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -9,17 +12,17 @@ import (
 type AnconAppChain struct {
 	StorageManager *Storage
 
-	Store *rootmulti.Store
+	Store types.CommitMultiStore
 }
 
 var _ abcitypes.Application = (*AnconAppChain)(nil)
 
 func NewAnconAppChain(key string, db dbm.DB) *AnconAppChain {
-	store := rootmulti.NewStore(db)
+	store := store.NewCommitMultiStore(db)
 
 	return &AnconAppChain{
 		Store:          store,
-		StorageManager: NewStorage(key, store),
+		StorageManager: NewStorage(key, store, db),
 	}
 }
 
@@ -72,7 +75,13 @@ func (app *AnconAppChain) Commit() abcitypes.ResponseCommit {
 }
 
 func (app *AnconAppChain) Query(req abcitypes.RequestQuery) abcitypes.ResponseQuery {
-	return app.Store.Query(req)
+	mngr := cache.NewCommitKVStoreCacheManager(cache.DefaultCommitKVStoreCacheSize)
+	mngr.GetStoreCache(types.NewKVStoreKey(STORE_KEY), app.Store.GetCommitKVStore(types.NewKVStoreKey(STORE_KEY)))
+	iavlstore := mngr.Unwrap(types.NewKVStoreKey(STORE_KEY)).(*iavl.Store)
+
+	queryableStore := store.Queryable(iavlstore)
+
+	return queryableStore.Query(req)
 }
 
 func (AnconAppChain) InitChain(req abcitypes.RequestInitChain) abcitypes.ResponseInitChain {
